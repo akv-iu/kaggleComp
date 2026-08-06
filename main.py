@@ -25,12 +25,17 @@ GOOSE_COST = 300
 
 # Tile mix, as fractions of the farm. The rest goes to wheat, which exists mostly
 # to feed the geese -- a goose eats 1 wheat/day and a wheat tile yields ~0.8/day.
-MELON_FRAC = 0.6
-# Small on purpose. Geese lose to melon per action in an uncontested market, but
-# the market is SHARED: against an opponent who also sells melon the price halves
-# and egg (log, 0.20 -- effectively unsaturable) is what still pays. Measured
-# 16/16 wins over a melon-only clone at 0.1, and losses at 0.2 and above.
-GOOSE_FRAC = 0.1
+#
+# Tuned in SELF-PLAY, not against the built-in starter. Starter sells carrots and
+# never touches melon, which makes melon look like a private goldmine worth 60% of
+# the farm; against an opponent who also sells melon the price collapses twice as
+# fast and both players fall from ~$57k to ~$24k. This mix wins 16/16 (both seats,
+# 8 seeds, +4272) over the melon-heavy config that starter preferred, while scoring
+# *lower* against starter itself. Believe the self-play number.
+#
+# Caveat: these are requested fractions, not realised ones -- see _tile_role.
+MELON_FRAC = 0.4
+GOOSE_FRAC = 0.2
 
 # A plant must be watered EVERY day or it weeds out, so tending capacity -- not
 # land and not cash -- is what caps how much we may take on. A unit gets 24 actions
@@ -109,7 +114,17 @@ def _shed_tiles(tiles):
 
 
 def _tile_role(x, y):
-    """Fixed spatial split of the farm, so the mix holds without carrying state."""
+    """Fixed spatial split of the farm, so the mix holds without carrying state.
+
+    ponytail: the (7x+3y)%10 hash is uniform over the full 10x10 board but NOT
+    over a single 5x5 quadrant, which is where the whole opening is played. Only
+    5 of the 10 residues occur there, so requested fractions do not survive: 0.5
+    and 0.6 melon both realise as 60% in the opening quadrant, making those two
+    configs byte-identical until the second quadrant is bought. Any sweep over
+    these knobs is therefore lumpy and partly measuring the hash. Replace with an
+    exact per-quadrant quota (row-major index vs. cumulative fractions) if the mix
+    needs tuning further -- that also clusters same-role tiles, which cuts walking.
+    """
     h = (x * 7 + y * 3) % 10
     if h < MELON_FRAC * 10:
         return "MELON"
