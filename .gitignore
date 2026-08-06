@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+replay.json
+replays/
+logs/
+submission.tar.gz
