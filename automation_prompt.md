@@ -25,7 +25,11 @@ Read in this order and stop when you have what you need:
    `fieldRecord`, `selectedReplays` and `scoreHistory`.
 4. The replay files named in `analysisReplayFiles`. There are only a handful and
    they are chosen for you: the worst losses, the highest-scoring opponent games,
-   and the near-misses. Do not go looking for more.
+   and the near-misses. Do not go looking for more — the raw corpus is pruned to a
+   250MB budget after every run, so most episodes exist only as rows in
+   `replay_index.json`. That index holds every game ever scored, with opponent,
+   both scores and a replay URL, and it is the right place to ask questions about
+   the field as a whole. Only the selected files can be opened.
 5. `main.py`, `test_agent.py`, and the competition rules.
 6. `decision.md` only if you need the full reasoning behind a specific past
    attempt. **Grep it for the entry you want; do not read it end to end.** It is

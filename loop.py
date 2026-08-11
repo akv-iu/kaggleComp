@@ -32,11 +32,14 @@ ATTEMPTS = "attempts.jsonl"
 N_WORST_LOSSES = 3
 N_TOP_OPPONENT = 2
 N_CLOSE_LOSSES = 2
-# What survives on disk. Everything else stays in the index and is re-downloadable
-# from Kaggle with `competitions replay <episode>`.
-KEEP_LOSSES = 6
-KEEP_TOP = 6
-KEEP_RECENT = 4
+# What survives on disk, in priority order, under a hard budget. Everything else
+# is deleted as soon as it has been indexed -- a replay is ~17MB and its scores,
+# which are the durable part, are already in the index. Anything deleted is still
+# re-downloadable with `kaggle competitions replay <episode>`.
+KEEP_TOP = 6      # the ceiling: what the best farms in the field actually scored
+KEEP_LOSSES = 6   # where we lose, which is where the next hypothesis comes from
+KEEP_RECENT = 4   # fresh material for the next run
+MAX_RAW_MB = 250
 
 HEAD_BYTES = 65536
 
@@ -131,28 +134,55 @@ def select(rows=None):
     return picked
 
 
-def keep_set(rows):
+def keep_priority(rows):
+    """Most worth keeping first. `prune` trims from the tail until it fits."""
     rows = _existing(rows)
     losses = sorted((r for r in rows if r["result"] == "LOSS"), key=lambda r: r["delta"])
     top = sorted(rows, key=lambda r: -r["them"])
     newest = sorted(rows, key=lambda r: -int(r["episode"]) if r["episode"].isdigit() else 0)
-    keep = {r["file"] for r in
-            losses[:KEEP_LOSSES] + top[:KEEP_TOP] + newest[:KEEP_RECENT]}
-    # Whatever this run was told to analyse must outlive this run's prune.
-    return keep | {r["file"] for r in select(rows)}
+    ordered, seen = [], set()
+    # Whatever this run was told to analyse comes first: it must outlive this
+    # run's own prune. Then the ceiling, then the losses, then fresh material.
+    for r in (select(rows) + top[:KEEP_TOP] + losses[:KEEP_LOSSES]
+              + newest[:KEEP_RECENT]):
+        if r["file"] not in seen:
+            seen.add(r["file"])
+            ordered.append(r)
+    return ordered
+
+
+def keep_set(rows):
+    keep, used, budget = set(), 0, MAX_RAW_MB * 1_000_000
+    for r in keep_priority(rows):
+        size = os.path.getsize(r["file"])
+        if keep and used + size > budget:
+            break
+        keep.add(r["file"])
+        used += size
+    return keep
 
 
 def prune(dry_run=False):
-    rows = load_index()
-    keep = keep_set(rows)
+    """Delete every raw replay outside the keep set.
+
+    Walks the disk rather than the index on purpose. Games against our own
+    submissions are deliberately absent from the index, so an index-driven sweep
+    would never delete them and they would pile up forever.
+    """
+    keep = keep_set(load_index())
     freed = 0
-    for r in _existing(rows):
-        if r["file"] in keep:
+    for path in glob.glob("replays/**/*-replay.json", recursive=True):
+        if path.replace("\\", "/") in keep:
             continue
-        freed += os.path.getsize(r["file"])
+        freed += os.path.getsize(path)
         if not dry_run:
-            os.remove(r["file"])
-    return freed, len(keep)
+            os.remove(path)
+    if not dry_run:
+        for stale in glob.glob("replays/*"):
+            if os.path.isdir(stale) and not os.listdir(stale):
+                os.rmdir(stale)
+    held = sum(os.path.getsize(f) for f in keep if os.path.exists(f))
+    return freed, len(keep), held
 
 
 def attempts():
@@ -201,8 +231,9 @@ if __name__ == "__main__":
     elif cmd == "select":
         print(json.dumps(select(), indent=1))
     elif cmd == "prune":
-        freed, kept = prune("--dry-run" in sys.argv)
-        print(f"kept {kept} replays, freed {freed / 1e6:.0f} MB")
+        freed, kept, held = prune("--dry-run" in sys.argv)
+        print(f"kept {kept} replays ({held / 1e6:.0f} of {MAX_RAW_MB} MB), "
+              f"freed {freed / 1e6:.0f} MB")
     elif cmd == "attempts":
         rows = attempts()
         print(f"{len(rows)} attempts -> {ATTEMPTS}")

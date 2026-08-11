@@ -65,7 +65,7 @@ function Save-Work([string]$message) {
     }
 }
 
-# Codex edits main.py in place, so a rejected experiment must be rolled back or it
+# The agent edits main.py in place, so a rejected experiment must be rolled back or it
 # silently becomes the next run's baseline. The ledgers keep their record of the
 # rejected attempt on purpose.
 function Reject([string]$reason) {
@@ -97,7 +97,7 @@ try {
 
     # Public rating is the leaderboard signal. Log its direction every run so a change
     # that won locally but scored worse publicly is visible, and hand the history to
-    # Codex so it can weigh what public play actually rewarded.
+    # the agent so it can weigh what public play actually rewarded.
     $scoreHistory = @($submissions | Select-Object ref, description, publicScore)
     $scored = @($scoreHistory | Where-Object { $_.publicScore })
     if ($scored) {
@@ -206,17 +206,24 @@ try {
         state = $state
     } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $runtime "run_context.json")
 
-    Write-Log "Starting Codex analysis for $($selected.Count) replay(s), submission $submissionId."
-    Native {
+    Write-Log "Starting analysis for $($selected.Count) replay(s), submission $submissionId."
+    # `-p` is non-interactive, so nothing can answer a permission prompt: a denied
+    # tool call would look like a failed experiment rather than a blocked one.
+    # Web tools are denied outright instead -- the wrapper owns every Kaggle call,
+    # and the agent is told it has no network.
+    $reply = Native {
         Get-Content -Raw -LiteralPath $promptPath |
-            codex exec - -C $workspace -s workspace-write --ephemeral --color never `
-                -o (Join-Path $runtime "last_message.txt") *>> $runLog
+            & claude -p --model opus --effort high `
+                --permission-mode bypassPermissions `
+                --disallowed-tools WebFetch WebSearch 2>&1 | Out-String
     }
-    if ($LASTEXITCODE -ne 0) { Reject "Codex exited with code $LASTEXITCODE." }
-    if (-not (Test-Path -LiteralPath $requestPath)) { Reject "Codex did not approve a candidate." }
+    $exit = $LASTEXITCODE
+    Set-Content -LiteralPath (Join-Path $runtime "last_message.txt") -Value $reply
+    if ($exit -ne 0) { Reject "Analysis agent exited with code $exit." }
+    if (-not (Test-Path -LiteralPath $requestPath)) { Reject "No candidate was approved." }
 
     $request = Get-Content -Raw -LiteralPath $requestPath | ConvertFrom-Json
-    if (-not $request.approved) { Reject "Codex request was not approved." }
+    if (-not $request.approved) { Reject "Submission request was not approved." }
 
     $baselineHash = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $runtime "baseline_main.py")).Hash
     $candidateHash = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $workspace "main.py")).Hash
@@ -233,7 +240,7 @@ try {
     Native { & $python test_agent.py *>> $runLog }
     if ($LASTEXITCODE -ne 0) { Reject "test_agent.py failed." }
 
-    # Re-run the benchmark here instead of trusting the numbers Codex reported. Eight
+    # Re-run the benchmark here instead of trusting the numbers the agent reported. Eight
     # games cost about 40 seconds, so the gate is measured rather than self-graded.
     $benchmark = Native { & $python (Join-Path $runtime "baseline_verify.py") `
         (Join-Path $runtime "baseline_main.py") 4 2>$null }
