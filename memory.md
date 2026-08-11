@@ -101,7 +101,15 @@ This is the durable evidence ledger for the optimizer. Read it before choosing a
 - **Attempt:** Add 12 strawberry tiles to the v5 plan.
 - **Evidence:** Averaged 70,232 versus 78,026 and lost 8/8.
 - **Why it failed in this pairing:** Even a modest crop allocation displaced higher-return herd work before routing and staffing were crop-aware.
-- **Test again only with:** Better crop routing, explicit herd floor, and measured idle labor that crops can consume without delaying animal work.
+- **Test again only with:** Nothing under the current cash curve - see below. This diagnosis was wrong; the constraint was never staffing.
+
+### Strawberry at any slot cost (three refusals, now with a mechanism)
+
+- **Attempt:** The named missing pairing - give the crop its own halved slot cost (`BERRY_SLOTS = 2`), plant it last behind melon, livestock and feed wheat, fund seed only from the investment budget, and give it a sell rule. Eight tiles.
+- **Evidence:** 0/8 at -$6,213, every status DONE, costing about $9,800 next to the fertilize-only agent. The crop itself performed perfectly: 8 tiles planted, 32 units harvested and sold, the full unfertilized yield. Seed 3: 15 animals versus 19, milk 96 versus 147, wool 70 versus 101, about $6,400 of strawberry against roughly $16,000 of forgone animal production - and PASS *rose* from 1,255 to 1,534.
+- **Why it failed in this pairing:** Idle time went up, so labour was never the constraint; cash was. $800 of early seed is two cows that would have compounded for twenty days. More fundamentally, strawberry needs 16 days, so it must go in the ground by day 13, and the farm is cash-poor until about day 13-15: **its planting deadline lies entirely inside the phase where capital is scarcest.** The $318 end price is a consequence of nobody growing it, not an opportunity - a crop planted at the deadline first produces on day 23.
+- **Test again only with:** Proof that the animal pipeline is slot-limited rather than cash-limited before day 13. Do not retry by tuning tile counts, slot costs, planting order or sell rules; all four have now been varied and the loss is structural.
+- **Standing lesson:** On this farm, when a change frees actions, PASS goes up and money does not. Cash and the compounding herd are the binding constraint in every experiment that has ever won. Prefer changes that add cash or subtract cost over changes that add work.
 
 ### Aggressive hiring as the sole repair for crop-heavy plans
 
