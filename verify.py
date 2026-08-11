@@ -1,7 +1,19 @@
-"""Head-to-head benchmark: candidate main.py vs a baseline copy.
+"""Head-to-head benchmark: candidate main.py vs a baseline copy, plus a mirror.
 
 Run: .venv/Scripts/python.exe verify.py [baseline.py] [n_seeds]
-Prints one JSON line: {"games": [{seed, seat, candidate, baseline, *_status}, ...]}
+Prints one JSON line: {"games": [...], "mirror": {...}}
+
+The head-to-head asks "does it beat the previous agent". That question rewards
+acting *sooner* than the opponent on anything shared, because the opponent is a
+slower copy of ourselves -- and the market here is shared. v7 dropped the
+fertilizer sell floor, won 7/8 head-to-head at +$1,504, and lost 36 points of
+public rating: nothing drains fertilizer, so selling faster only decides which
+farm gets the top of a curve both are pushing down.
+
+So `mirror` plays each agent against *itself* and reports its absolute score. A
+change that genuinely produces or saves more raises the mirror score; a change
+that merely gets there first does not, because in a mirror both sides get there
+at the same time. Judge a candidate on both numbers.
 """
 
 import importlib.util
@@ -34,7 +46,32 @@ def run(baseline_path=".automation/baseline_main.py", n_seeds=4):
     return games
 
 
+def mirror(path, tag, n_seeds):
+    """Absolute score with both seats played by the same agent.
+
+    Loaded twice under different module names on purpose: an agent that keeps
+    state between turns would otherwise share one copy of it across both farms.
+    """
+    a, b = _load(path, tag + "_a"), _load(path, tag + "_b")
+    scores, done = [], True
+    for seed in range(n_seeds):
+        env = make("kaggriculture", configuration={"seed": seed})
+        env.run([a, b])
+        for s in env.steps[-1]:
+            scores.append(s.reward)
+            done = done and str(s.status) == "DONE"
+    return {"scores": scores, "mean": sum(scores) / len(scores), "all_done": done}
+
+
+def run_mirror(baseline_path, n_seeds):
+    cand = mirror("main.py", "mcand", n_seeds)
+    base = mirror(baseline_path, "mbase", n_seeds)
+    return {"candidate": cand, "baseline": base,
+            "delta": cand["mean"] - base["mean"]}
+
+
 if __name__ == "__main__":
     path = sys.argv[1] if len(sys.argv) > 1 else ".automation/baseline_main.py"
     seeds = int(sys.argv[2]) if len(sys.argv) > 2 else 4
-    print(json.dumps({"games": run(path, seeds)}))
+    print(json.dumps({"games": run(path, seeds),
+                      "mirror": run_mirror(path, seeds)}))

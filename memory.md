@@ -55,9 +55,16 @@ This is the durable evidence ledger for the optimizer. Read it before choosing a
 ### Local self-play overvalues racing an opponent to a shared pool
 
 - **Lesson:** `verify.py` plays the candidate against a copy of the baseline in the same market. Any change that simply acts *sooner* than the opponent on a shared, finite resource wins locally by beating a slower copy of itself, and that edge does not exist against a field that already acts promptly.
-- **Evidence:** v7 dropped the fertilizer sell floor from $50 to $5 and won 7/8 locally at +$1,503.9. Its public rating came back **623.7, down 35.9 from v6's 659.6** - the first regression since v4. Fertilizer is the clearest case in the game: nothing anywhere drains it, so its price is a strictly decreasing shared pool, and selling faster only moves who gets the top of a curve both farms are pushing down.
-- **How to apply:** Before trusting a local win, ask whether the gain comes from *producing or saving more* or merely from *getting there first*. The first generalises to the real field; the second does not. More seeds do not fix this - it is a bias in the benchmark's design, not its sample size.
-- **Reconsider if:** A change's advantage can be shown to hold with the opponent making the identical move at the identical time.
+- **Evidence:** v7 dropped the fertilizer sell floor from $50 to $5 and won 7/8 locally at +$1,503.9. Its public rating settled at **649.0, below v6's 665.4**. Fertilizer is the clearest case in the game: nothing anywhere drains it, so its price is a strictly decreasing shared pool, and selling faster only moves who gets the top of a curve both farms are pushing down.
+- **The detector, now in `verify.py` and gated by the wrapper:** `mirror` plays each agent against *itself* and reports its absolute score. Racing gains vanish in a mirror because both sides act at the same moment; production gains survive. Measured across three shipped versions, it separates them exactly:
+
+  | | head-to-head | mirror | public rating |
+  |---|---|---|---|
+  | v6 -> v7 | 7/8, +$1,504 | **+84** | 665.4 -> 649.0 |
+  | v7 -> v8 | 14/16, +$3,567 | **+3,903** | 649.0 -> **777.0** |
+
+- **How to apply:** Before trusting a local win, ask whether the gain comes from *producing or saving more* or merely from *getting there first*. More seeds do not fix this - it is a bias in the benchmark's design, not its sample size. The wrapper now requires a mirror gain of at least 500.
+- **Reconsider if:** A racing change ever clears the mirror gate; then raise the threshold.
 
 ### Read the environment source, not the agent's own comments
 

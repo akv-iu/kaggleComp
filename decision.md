@@ -295,3 +295,23 @@ Append one entry for every evaluated attempt, including rejected attempts. Never
 - **What it implies for v8:** v8's own change saves cost rather than racing anyone - it cuts wheat purchases from ~140 to ~90 units a game whatever the opponent does - and it withdraws about 48 units a game from the fertilizer dump, partially undoing v7's contribution to the crash. It does inherit v7's floor.
 - **Caveats:** v7 had been scored for under an hour and public ratings converge as episodes accumulate; the rating history already contains one non-monotone step (563.3 to 554.1).
 - **Next action if v8 also regresses:** Restore `SELL_RULES["FERTILIZER"]` to its $50 floor while keeping the fertilize-wheat job, which isolates the cost-saving half from the racing half and is the cleanest available test of the diagnosis above.
+- **Outcome:** v8 scored **777.0**, up 111.6 on the previous best (v6's 665.4), while v7 settled at 649.0. Both predictions held: the racing change regressed, the production change is the largest public gain of the project. No further action needed.
+
+## 2026-08-11 - Rebuild the improvement loop around losses, not averages (process change)
+
+- **State:** The loop fed Codex all 41 replays of the latest submission equally, read both ledgers in full every run, and kept every raw replay forever (1.26 GB). Its own last report read "Akshay averaged $55,456 versus opponents' $57,676, 20-20 record" - true, and hiding everything that matters.
+- **What the averages hid:** Indexing every replay and excluding games against our own submissions gives **33W-40L**, not 20-20: the agent was losing in the field. Our best game ever is $82,876; the field's best is **$175,862** by wenjinyang, and four opponents have beaten our best-ever game. Roughly twenty-five experiments had been tuning constants inside an architecture that scores half what the top of the field scores.
+- **Decision:** Five changes, all measured.
+  1. **`loop.py`** - a replay index built from each file's first 64KB. `rewards` and `TeamNames` are serialised before `steps`, so win/loss for the whole corpus costs **0.01s instead of parsing 1.26 GB**. Self-games are excluded; the index records opponent, scores, delta and a replay URL.
+  2. **Loss-first selection** - each run reads the 3 worst losses, the 2 highest-scoring opponent games and the 2 near-misses, not everything. Typically 5 files instead of 41.
+  3. **Retention** - the index is permanent and version-controlled; raw replays are pruned to the informative set. 1,260 MB to 300 MB, and re-downloadable from Kaggle by episode id.
+  4. **Tiered ledgers** - `memory.md` stays the always-read curated summary; `decision.md` becomes a grep-on-demand archive; `attempts.jsonl` carries one line per past experiment (35 today) so "was this tried?" costs no prose.
+  5. **Mirror gate** - `verify.py` now also plays each agent against itself and the wrapper requires a mirror gain of at least 500. See the entry above for the evidence that this separates racing from production.
+- **Bugs found by integration-testing the rewrite, all fixed:**
+  - `build_index` rebuilt from surviving files, so the first prune collapsed the index from 73 rows to 7. It now merges and never shrinks; the index outlives the raw files by design.
+  - `prune` could delete a replay `select` had just chosen for the same run. The keep set now includes the current selection, plus the 4 newest games.
+  - Windows PowerShell 5.1 returns a JSON array from `ConvertFrom-Json` as a single object, so `@(... | ConvertFrom-Json)` yielded a one-element array containing the array. This silently emptied the seen-set and made the wrapper re-download the season it had just pruned. Fixed with an `AsArray` helper at all three sites.
+  - `replay_index.json` lived under the gitignored `.automation/`; it is the one artefact that cannot be regenerated after a prune, so it now lives in the repo.
+- **Cost of the index bug:** roughly 66 older replays were pruned before the merge fix landed. Their episodes are still on Kaggle, and 27 of the most relevant (v7's 20 and v8's 7) were re-downloaded and indexed. v6's 42 remain re-downloadable if ever wanted.
+- **Verdict:** Adopted. Wrapper verified end to end: 0 re-downloads, 5 replays selected, context written, ledgers tiered. It still stops at the Codex spend cap, which is an account limit rather than a loop defect.
+- **Best distinct next hypothesis:** With the loop pointed at them, work out what wenjinyang does to reach $175,862 - more than twice our best - and treat that as the target rather than the next constant.

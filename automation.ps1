@@ -13,12 +13,29 @@ $logPath = Join-Path $runtime "automation.log"
 # it unreadable, so raw command transcripts get their own.
 $runLog = Join-Path $runtime "run_output.log"
 $requestPath = Join-Path $runtime "submit_request.json"
+$indexPath = Join-Path $workspace "replay_index.json"
+# Mirror gain below this is indistinguishable from a change that merely acts
+# sooner than a slower copy of itself. Calibrated on two submissions: v7 won the
+# head-to-head 7/8 at +$1,504, showed +84 in the mirror, and lost 36 points of
+# public rating; v8 showed +3,903. Raise it if a racing change ever slips past.
+$mirrorMin = 500
 $mutex = [Threading.Mutex]::new($false, "Local\KaggricultureReplayOptimizer")
 
 # A run that crashed while holding the mutex leaves it abandoned, and WaitOne then
 # throws instead of returning false.
 try { $held = $mutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $held = $true }
 if (-not $held) { exit 0 }
+
+# Windows PowerShell 5.1 hands a JSON array back from ConvertFrom-Json as a single
+# object instead of enumerating it, so `@($json | ConvertFrom-Json)` yields a
+# one-element array *containing* the array. That silently turned the replay index
+# into one row -- the seen-set matched nothing and every run re-downloaded the
+# season it had just pruned.
+function AsArray($value) {
+    if ($null -eq $value) { return @() }
+    if ($value -is [array]) { return $value }
+    return @($value)
+}
 
 function Write-Log([string]$message) {
     $line = "{0} {1}" -f (Get-Date -Format o), $message
@@ -38,8 +55,8 @@ function Native([scriptblock]$block) {
 
 function Save-Work([string]$message) {
     Native {
-        & git add -- main.py test_agent.py verify.py memory.md decision.md `
-            automation.ps1 automation_prompt.md *>> $runLog
+        & git add -- main.py test_agent.py verify.py loop.py memory.md decision.md `
+            attempts.jsonl automation.ps1 automation_prompt.md *>> $runLog
         & git diff --cached --quiet
         if ($LASTEXITCODE -eq 0) { return }
         & git commit -q -m $message *>> $runLog
@@ -104,10 +121,21 @@ try {
 
     $replayDir = Join-Path $workspace "replays\submission-$submissionId"
     New-Item -ItemType Directory -Path $replayDir -Force | Out-Null
+
+    # The index, not the disk, is the record of what we have already seen. Raw
+    # replays are ~17MB each and get pruned once they have been indexed, so
+    # testing for the file would re-download the whole season every run.
+    $seen = @{}
+    if (Test-Path -LiteralPath $indexPath) {
+        foreach ($row in (AsArray (Get-Content -Raw -LiteralPath $indexPath | ConvertFrom-Json))) {
+            $seen[[string]$row.episode] = $true
+        }
+    }
+
     $newFiles = [Collections.Generic.List[string]]::new()
     foreach ($episode in $episodes) {
         $target = Join-Path $replayDir ("episode-{0}-replay.json" -f $episode.id)
-        if (Test-Path -LiteralPath $target) { continue }
+        if ($seen.ContainsKey([string]$episode.id) -or (Test-Path -LiteralPath $target)) { continue }
         $download = Native { & $kaggle competitions replay $episode.id -p $replayDir 2>&1 | Out-String }
         if ($LASTEXITCODE -ne 0) {
             Write-Log "Replay $($episode.id) failed: $download"
@@ -120,19 +148,27 @@ try {
     if ($downloadedReplayCount -gt 0) { $state.needsImprovement = $true }
     $state | ConvertTo-Json | Set-Content -LiteralPath $statePath
 
-    if ($downloadedReplayCount -eq 0) {
-        if (-not $state.needsImprovement) {
-            Write-Log "No unseen replays and the latest candidate passed quality; waiting for new evidence."
-            exit 0
-        }
-        Get-ChildItem -LiteralPath $replayDir -Filter "*-replay.json" -File |
-            Sort-Object Name | ForEach-Object { $newFiles.Add($_.FullName) }
-        if ($newFiles.Count -eq 0) {
-            Write-Log "Improvement remains active, but no replay evidence is available for submission $submissionId."
-            exit 0
-        }
-        Write-Log "No unseen replays; continuing improvement with $($newFiles.Count) cached replay(s)."
+    if ($downloadedReplayCount -eq 0 -and -not $state.needsImprovement) {
+        Write-Log "No unseen replays and the latest candidate passed quality; waiting for new evidence."
+        exit 0
     }
+
+    # Index every replay from its first 64KB -- `rewards` and `TeamNames` are
+    # serialised before `steps`, so this never parses a 17MB file -- then keep
+    # only the handful worth reading and delete the rest of the raw corpus.
+    # Reading all 41 replays equally is what let "20W-20L on average" hide that
+    # the top of the field scores 175,862 against our best-ever 82,876.
+    Native { & $python loop.py index *>> $runLog }
+    Native { & $python loop.py attempts *>> $runLog }
+    $selected = AsArray ((Native { & $python loop.py select | Out-String }) | ConvertFrom-Json)
+    Native { & $python loop.py prune *>> $runLog }
+
+    if ($selected.Count -eq 0) {
+        Write-Log "Improvement remains active, but no replay evidence is available."
+        exit 0
+    }
+    $analysisFiles = @($selected | ForEach-Object { $_.file })
+    Write-Log ("Analysing {0} selected replay(s): {1} new this run." -f $selected.Count, $downloadedReplayCount)
 
     Copy-Item -LiteralPath (Join-Path $workspace "main.py") -Destination (Join-Path $runtime "baseline_main.py") -Force
     Copy-Item -LiteralPath (Join-Path $workspace "test_agent.py") -Destination (Join-Path $runtime "baseline_test_agent.py") -Force
@@ -141,19 +177,36 @@ try {
     Copy-Item -LiteralPath (Join-Path $workspace "decision.md") -Destination (Join-Path $runtime "baseline_decision.md") -Force
     if (Test-Path -LiteralPath $requestPath) { Remove-Item -LiteralPath $requestPath -Force }
 
+    $index = AsArray (Get-Content -Raw -LiteralPath $indexPath | ConvertFrom-Json)
+    $losses = @($index | Where-Object { $_.result -eq "LOSS" })
+    $ourBest = ($index | Measure-Object -Property me -Maximum).Maximum
+    $fieldBest = $index | Sort-Object -Property them -Descending | Select-Object -First 1
+
     @{
         submissionId = $submissionId
         downloadedAt = (Get-Date -Format o)
         newReplayCount = $downloadedReplayCount
-        newReplayFiles = if ($downloadedReplayCount) { @($newFiles | Select-Object -First $downloadedReplayCount) } else { @() }
-        analysisReplayCount = $newFiles.Count
-        analysisReplayFiles = @($newFiles)
+        # Only these are worth opening. Self-games are excluded from the index:
+        # our own submissions meet in the public field and teach nothing about it.
+        analysisReplayCount = $selected.Count
+        analysisReplayFiles = $analysisFiles
+        selectedReplays = $selected
+        fieldRecord = @{
+            games = $index.Count
+            wins = @($index | Where-Object { $_.result -eq "WIN" }).Count
+            losses = $losses.Count
+            ourBestGame = $ourBest
+            fieldBestGame = $fieldBest.them
+            fieldBestBy = $fieldBest.opponent
+            fieldBestWatch = $fieldBest.watch
+        }
+        attemptsFile = "attempts.jsonl"
         continuation = ($downloadedReplayCount -eq 0)
         scoreHistory = $scoreHistory
         state = $state
     } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $runtime "run_context.json")
 
-    Write-Log "Starting Codex analysis for $($newFiles.Count) replay(s), submission $submissionId."
+    Write-Log "Starting Codex analysis for $($selected.Count) replay(s), submission $submissionId."
     Native {
         Get-Content -Raw -LiteralPath $promptPath |
             codex exec - -C $workspace -s workspace-write --ephemeral --color never `
@@ -186,7 +239,9 @@ try {
         (Join-Path $runtime "baseline_main.py") 4 2>$null }
     if ($LASTEXITCODE -ne 0) { Reject "verify.py failed to run." }
     Set-Content -LiteralPath (Join-Path $runtime "verified.json") -Value $benchmark
-    $games = @((@($benchmark) | Where-Object { $_ } | Select-Object -Last 1 | ConvertFrom-Json).games)
+    $verified = @($benchmark) | Where-Object { $_ } | Select-Object -Last 1 | ConvertFrom-Json
+    $games = @($verified.games)
+    $mirrorDelta = [double]$verified.mirror.delta
     $allDone = @($games | Where-Object {
         $_.candidate_status -eq "DONE" -and $_.baseline_status -eq "DONE"
     }).Count
@@ -199,7 +254,12 @@ try {
     if ($games.Count -lt 8 -or $allDone -ne $games.Count -or $wins -lt 7 -or $meanDelta -lt 100) {
         Reject "Failed measured gate: games=$($games.Count), wins=$wins, meanDelta=$meanDelta, done=$allDone."
     }
-    Write-Log "Verified gate: wins=$wins/$($games.Count), meanDelta=$meanDelta."
+    # The head-to-head alone cannot tell production from racing, so require the
+    # mirror -- each agent against itself -- to gain too. See verify.py.
+    if (-not $verified.mirror.candidate.all_done -or $mirrorDelta -lt $mirrorMin) {
+        Reject "Failed mirror gate: mirrorDelta=$mirrorDelta (need $mirrorMin). Beats the old agent without producing more."
+    }
+    Write-Log "Verified gate: wins=$wins/$($games.Count), meanDelta=$meanDelta, mirrorDelta=$mirrorDelta."
 
     if ([int]$state.submissionsUsed -ge [int]$state.submissionLimit) {
         $state | ConvertTo-Json | Set-Content -LiteralPath $statePath

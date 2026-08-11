@@ -1,0 +1,36 @@
+{"title": "Repair livestock capacity and execution (selected as v5)", "verdict": "selected", "wins": null, "mean": null}
+{"title": "Full crop-heavy strawberry/melon pivot (rejected)", "verdict": "rejected", "wins": null, "mean": null}
+{"title": "Lower planning slot costs for crop capacity (rejected)", "verdict": "rejected", "wins": null, "mean": null}
+{"title": "Small 12-strawberry hybrid (rejected)", "verdict": "rejected", "wins": null, "mean": null}
+{"title": "Aggressive hiring for crop-heavy variants (rejected)", "verdict": "rejected", "wins": null, "mean": null}
+{"title": "Reduce land carriers to 3 (rejected)", "verdict": "rejected", "wins": null, "mean": null}
+{"title": "Add 12 melon tiles (rejected)", "verdict": "rejected", "wins": null, "mean": null}
+{"title": "Water-only plus late-wheat optimization (rejected alone)", "verdict": "rejected", "wins": null, "mean": null}
+{"title": "Wheat-per-animal ratio sweep (0.75 selected)", "verdict": "selected", "wins": "8/8", "mean": null}
+{"title": "Submit replay-driven wheat loop as v6", "verdict": "unknown", "wins": null, "mean": null}
+{"title": "Cap the farm at two quadrants (rejected)", "verdict": "rejected", "wins": "7/8", "mean": null}
+{"title": "Make quality failure self-continuing (process change)", "verdict": "process", "wins": null, "mean": null}
+{"title": "Make the +5,000 gate independently local (process change)", "verdict": "process", "wins": null, "mean": null}
+{"title": "Round-robin feed pickups across unlocked shed docks (rejected)", "verdict": "rejected", "wins": "0/8", "mean": null}
+{"title": "Cap daily farm hands at 10 (rejected)", "verdict": "rejected", "wins": "6/8", "mean": null}
+{"title": "Shift the herd target from sheep to cows (rejected)", "verdict": "rejected", "wins": "2/8", "mean": null}
+{"title": "Choose pickup docks from actual feed/place destinations (rejected)", "verdict": "rejected", "wins": "1/8", "mean": null}
+{"title": "Size wheat pickups from current FEED jobs (rejected)", "verdict": "rejected", "wins": "2/8", "mean": null}
+{"title": "Reduce the fixed feed cash reserve from ten days to eight (rejected)", "verdict": "rejected", "wins": "3/8", "mean": null}
+{"title": "Lower the independent submission gate to +3,000 (process change)", "verdict": "process", "wins": null, "mean": null}
+{"title": "Net current secured wheat from the cash feed reserve (rejected)", "verdict": "rejected", "wins": null, "mean": null}
+{"title": "Double the post-day-20 wheat floor (rejected)", "verdict": "rejected", "wins": null, "mean": null}
+{"title": "Cap the farm at three quadrants (rejected)", "verdict": "rejected", "wins": null, "mean": null}
+{"title": "Delay the fourth quadrant until day 15 (rejected)", "verdict": "rejected", "wins": "0/8", "mean": "-$2,123.3"}
+{"title": "Suppress wheat pickups only on the final day (rejected)", "verdict": "rejected", "wins": "6/8", "mean": "+$565.8"}
+{"title": "Gate fertilizer collection at the live $50 sell floor (rejected)", "verdict": "rejected", "wins": "0/8", "mean": "-$84"}
+{"title": "Lower the independent submission gate to +100 (process change)", "verdict": "process", "wins": null, "mean": null}
+{"title": "Persistent per-unit job claims (rejected)", "verdict": "rejected", "wins": "1/8", "mean": "-$2,285.5"}
+{"title": "Batch shed pickups into whole loads (rejected)", "verdict": "rejected", "wins": "2/8", "mean": "-$1,921.1"}
+{"title": "Decouple planning capacity from hiring load (rejected on screening)", "verdict": "rejected", "wins": null, "mean": "-$6,389.3"}
+{"title": "Sell fertilizer as it arrives instead of hoarding it (selected as v7)", "verdict": "selected", "wins": "7/8", "mean": "+$1,503.9"}
+{"title": "Read the environment source (analysis, no code change)", "verdict": "process", "wins": null, "mean": null}
+{"title": "Fertilize wheat instead of selling the fertilizer (selected as v8 candidate)", "verdict": "selected", "wins": null, "mean": "-$1,492"}
+{"title": "Strawberry on its own slot cost (rejected, third strawberry refusal)", "verdict": "rejected", "wins": null, "mean": null}
+{"title": "v7 public rating regressed; v8 submitted (score evidence)", "verdict": "unknown", "wins": "7/8", "mean": "$5"}
+{"title": "Rebuild the improvement loop around losses, not averages (process change)", "verdict": "process", "wins": null, "mean": null}
