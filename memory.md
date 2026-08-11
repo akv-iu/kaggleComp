@@ -56,15 +56,17 @@ This is the durable evidence ledger for the optimizer. Read it before choosing a
 
 - **Lesson:** `verify.py` plays the candidate against a copy of the baseline in the same market. Any change that simply acts *sooner* than the opponent on a shared, finite resource wins locally by beating a slower copy of itself, and that edge does not exist against a field that already acts promptly.
 - **Evidence:** v7 dropped the fertilizer sell floor from $50 to $5 and won 7/8 locally at +$1,503.9. Its public rating settled at **649.0, below v6's 665.4**. Fertilizer is the clearest case in the game: nothing anywhere drains it, so its price is a strictly decreasing shared pool, and selling faster only moves who gets the top of a curve both farms are pushing down.
-- **The detector, now in `verify.py` and gated by the wrapper:** `mirror` plays each agent against *itself* and reports its absolute score. Racing gains vanish in a mirror because both sides act at the same moment; production gains survive. Measured across three shipped versions, it separates them exactly:
-
-  | | head-to-head | mirror | public rating |
-  |---|---|---|---|
-  | v6 -> v7 | 7/8, +$1,504 | **+84** | 665.4 -> 649.0 |
-  | v7 -> v8 | 14/16, +$3,567 | **+3,903** | 649.0 -> **777.0** |
-
-- **How to apply:** Before trusting a local win, ask whether the gain comes from *producing or saving more* or merely from *getting there first*. More seeds do not fix this - it is a bias in the benchmark's design, not its sample size. The wrapper now requires a mirror gain of at least 500.
+- **The detector, now in `verify.py` and gated by the wrapper:** `mirror` plays each agent against *itself* and reports its absolute score. Racing gains vanish in a mirror because both sides act at the same moment; production gains survive. The wrapper requires a mirror gain of at least 500.
+- **How to apply:** Before trusting a local win, ask whether the gain comes from *producing or saving more* or merely from *getting there first*. More seeds do not fix this - it is a bias in the benchmark's design, not its sample size.
 - **Reconsider if:** A racing change ever clears the mirror gate; then raise the threshold.
+
+### Never read a public rating before it has converged
+
+- **Lesson:** A fresh submission's rating swings wildly for its first dozen episodes and means nothing. Wait for roughly 25-30 episodes (`kaggle competitions episodes <id>`) before treating a rating as evidence.
+- **Evidence:** v8 read **777.0 at 7 episodes** and **653.7 at 28**. A whole conclusion was drawn and written into this ledger off the 7-episode number, and it was wrong.
+- **What the converged numbers actually say:** v6 665.4 (42 games), v7 661.6 (29), v8 653.7 (28). Three versions, twelve points apart, i.e. indistinguishable. The local benchmark has meanwhile reported +$1,504 and +$3,567 for those same two steps, and the mirror reported +84 and +3,903.
+- **The uncomfortable implication:** local gains are not translating into public rating at all, and the mirror check - though sound in principle - has not yet been confirmed by a public result. Our local ladder measures play against ourselves; the field contains farms scoring twice our best. This is the strongest argument for chasing the field ceiling rather than another local delta.
+- **How to apply:** Record the episode count beside every rating in these ledgers. A rating without its episode count is not evidence.
 
 ### Read the environment source, not the agent's own comments
 

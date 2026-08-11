@@ -295,7 +295,8 @@ Append one entry for every evaluated attempt, including rejected attempts. Never
 - **What it implies for v8:** v8's own change saves cost rather than racing anyone - it cuts wheat purchases from ~140 to ~90 units a game whatever the opponent does - and it withdraws about 48 units a game from the fertilizer dump, partially undoing v7's contribution to the crash. It does inherit v7's floor.
 - **Caveats:** v7 had been scored for under an hour and public ratings converge as episodes accumulate; the rating history already contains one non-monotone step (563.3 to 554.1).
 - **Next action if v8 also regresses:** Restore `SELL_RULES["FERTILIZER"]` to its $50 floor while keeping the fertilize-wheat job, which isolates the cost-saving half from the racing half and is the cleanest available test of the diagnosis above.
-- **Outcome:** v8 scored **777.0**, up 111.6 on the previous best (v6's 665.4), while v7 settled at 649.0. Both predictions held: the racing change regressed, the production change is the largest public gain of the project. No further action needed.
+- **Outcome (corrected):** v8 first read 777.0 after only **7 episodes** and that number was recorded here as a +111.6 win. It was noise. At **28 episodes** v8 reads **653.7**. The converged standings are v6 665.4 (42 games), v7 661.6 (29), v8 653.7 (28) - three versions within twelve points, i.e. indistinguishable.
+- **What that means:** neither the +$1,504 (v7) nor the +$3,567 (v8) local gain has produced a measurable public gain, and the mirror check remains unconfirmed by any public result rather than validated by one. The v7 racing diagnosis is still the best explanation of its local-vs-public gap, but v8 does not corroborate it. Ratings are now always to be recorded with their episode count; see `memory.md`.
 
 ## 2026-08-11 - Rebuild the improvement loop around losses, not averages (process change)
 

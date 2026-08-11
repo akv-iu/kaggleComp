@@ -95,6 +95,16 @@ try {
     if (-not $submissions) { throw "Could not identify latest submission." }
     $submissionId = $submissions[0].ref
 
+    # Kaggle's five-submission limit is per day and resets at UTC midnight, so
+    # count the day's submissions from Kaggle itself. The old local tally only
+    # ever incremented: five lifetime submissions and the loop would go on
+    # improving forever while quietly never shipping again. Timestamps in the
+    # submissions CSV are UTC.
+    $todayUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd")
+    $usedToday = @($submissions | Where-Object { $_.date -like "$todayUtc*" }).Count
+    $state | Add-Member -NotePropertyName submissionsUsed -NotePropertyValue $usedToday -Force
+    $state | Add-Member -NotePropertyName submissionDayUtc -NotePropertyValue $todayUtc -Force
+
     # Public rating is the leaderboard signal. Log its direction every run so a change
     # that won locally but scored worse publicly is visible, and hand the history to
     # the agent so it can weigh what public play actually rewarded.
@@ -268,9 +278,9 @@ try {
     }
     Write-Log "Verified gate: wins=$wins/$($games.Count), meanDelta=$meanDelta, mirrorDelta=$mirrorDelta."
 
-    if ([int]$state.submissionsUsed -ge [int]$state.submissionLimit) {
+    if ($usedToday -ge [int]$state.submissionLimit) {
         $state | ConvertTo-Json | Set-Content -LiteralPath $statePath
-        Write-Log "Automation submission budget exhausted; verified candidate retained locally."
+        Write-Log "Daily submission budget spent ($usedToday/$($state.submissionLimit) UTC $todayUtc); verified candidate retained locally. It will be submitted after the reset."
         exit 0
     }
 
@@ -279,12 +289,12 @@ try {
     $submit = Native { & $kaggle competitions submit kaggriculture -f main.py -m $message 2>&1 | Out-String }
     Add-Content -LiteralPath $logPath -Value $submit
     if ($LASTEXITCODE -eq 0 -and $submit -match 'Successfully submitted') {
-        $state | Add-Member -NotePropertyName submissionsUsed -NotePropertyValue ([int]$state.submissionsUsed + 1) -Force
+        $state | Add-Member -NotePropertyName submissionsUsed -NotePropertyValue ($usedToday + 1) -Force
         $state | Add-Member -NotePropertyName lastSubmittedAt -NotePropertyValue (Get-Date -Format o) -Force
         $state | Add-Member -NotePropertyName lastMessage -NotePropertyValue $message -Force
         $state.needsImprovement = $false
         $state | ConvertTo-Json | Set-Content -LiteralPath $statePath
-        Write-Log "Submitted candidate; budget $($state.submissionsUsed)/$($state.submissionLimit)."
+        Write-Log "Submitted candidate; budget $($usedToday + 1)/$($state.submissionLimit) for UTC $todayUtc."
         Save-Work "automation: $message (+$([int]$meanDelta) mean money, $wins/$($games.Count) wins)"
     } else {
         Write-Log "Kaggle submission failed; budget unchanged."
