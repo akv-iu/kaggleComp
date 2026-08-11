@@ -48,6 +48,18 @@
   "watch": "https://www.kaggle.com/competitions/kaggriculture/leaderboard?dialog=episodes-episode-91124222"
  },
  {
+  "episode": "92057709",
+  "file": "replays/submission-55438775/episode-92057709-replay.json",
+  "seat": 0,
+  "me": 63255.0,
+  "them": 150498.0,
+  "delta": -87243.0,
+  "opponent": "Stanislav Ilin",
+  "result": "LOSS",
+  "seed": "1740155578",
+  "watch": "https://www.kaggle.com/competitions/kaggriculture/leaderboard?dialog=episodes-episode-92057709"
+ },
+ {
   "episode": "91124142",
   "file": "replays/episode-91124142-replay.json",
   "seat": 0,
@@ -72,6 +84,18 @@
   "watch": "https://www.kaggle.com/competitions/kaggriculture/leaderboard?dialog=episodes-episode-92051154"
  },
  {
+  "episode": "92056840",
+  "file": "replays/submission-55438775/episode-92056840-replay.json",
+  "seat": 1,
+  "me": 72909.0,
+  "them": 108013.0,
+  "delta": -35104.0,
+  "opponent": "Abhijeetgg",
+  "result": "LOSS",
+  "seed": "868030278",
+  "watch": "https://www.kaggle.com/competitions/kaggriculture/leaderboard?dialog=episodes-episode-92056840"
+ },
+ {
   "episode": "91705751",
   "file": "replays/v5/episode-91705751-replay.json",
   "seat": 1,
@@ -82,6 +106,18 @@
   "result": "LOSS",
   "seed": "1642548226",
   "watch": "https://www.kaggle.com/competitions/kaggriculture/leaderboard?dialog=episodes-episode-91705751"
+ },
+ {
+  "episode": "92057794",
+  "file": "replays/submission-55438775/episode-92057794-replay.json",
+  "seat": 1,
+  "me": 26926.0,
+  "them": 57880.0,
+  "delta": -30954.0,
+  "opponent": "Lujia Liang",
+  "result": "LOSS",
+  "seed": "950975022",
+  "watch": "https://www.kaggle.com/competitions/kaggriculture/leaderboard?dialog=episodes-episode-92057794"
  },
  {
   "episode": "91691542",
@@ -96,6 +132,18 @@
   "watch": "https://www.kaggle.com/competitions/kaggriculture/leaderboard?dialog=episodes-episode-91691542"
  },
  {
+  "episode": "92067427",
+  "file": "replays/submission-55438775/episode-92067427-replay.json",
+  "seat": 1,
+  "me": 35620.0,
+  "them": 58877.0,
+  "delta": -23257.0,
+  "opponent": "Lady and tech",
+  "result": "LOSS",
+  "seed": "459294733",
+  "watch": "https://www.kaggle.com/competitions/kaggriculture/leaderboard?dialog=episodes-episode-92067427"
+ },
+ {
   "episode": "92053041",
   "file": "replays/submission-55438775/episode-92053041-replay.json",
   "seat": 0,
@@ -106,6 +154,18 @@
   "result": "LOSS",
   "seed": "1692096615",
   "watch": "https://www.kaggle.com/competitions/kaggriculture/leaderboard?dialog=episodes-episode-92053041"
+ },
+ {
+  "episode": "92059659",
+  "file": "replays/submission-55438775/episode-92059659-replay.json",
+  "seat": 1,
+  "me": 65158.0,
+  "them": 86411.0,
+  "delta": -21253.0,
+  "opponent": "Noct-Tech zombie",
+  "result": "LOSS",
+  "seed": "346005088",
+  "watch": "https://www.kaggle.com/competitions/kaggriculture/leaderboard?dialog=episodes-episode-92059659"
  },
  {
   "episode": "92042717",
@@ -144,6 +204,30 @@
   "watch": "https://www.kaggle.com/competitions/kaggriculture/leaderboard?dialog=episodes-episode-92048492"
  },
  {
+  "episode": "92061629",
+  "file": "replays/submission-55438775/episode-92061629-replay.json",
+  "seat": 0,
+  "me": 64654.0,
+  "them": 77840.0,
+  "delta": -13186.0,
+  "opponent": "jiten_topiwala",
+  "result": "LOSS",
+  "seed": "291966859",
+  "watch": "https://www.kaggle.com/competitions/kaggriculture/leaderboard?dialog=episodes-episode-92061629"
+ },
+ {
+  "episode": "92064516",
+  "file": "replays/submission-55438775/episode-92064516-replay.json",
+  "seat": 0,
+  "me": 62495.0,
+  "them": 69129.0,
+  "delta": -6634.0,
+  "opponent": "Farmville Redux",
+  "result": "LOSS",
+  "seed": "1632724913",
+  "watch": "https://www.kaggle.com/competitions/kaggriculture/leaderboard?dialog=episodes-episode-92064516"
+ },
+ {
   "episode": "92045688",
   "file": "replays/submission-55438001/episode-92045688-replay.json",
   "seat": 1,
@@ -154,6 +238,42 @@
   "result": "LOSS",
   "seed": "320952539",
   "watch": "https://www.kaggle.com/competitions/kaggriculture/leaderboard?dialog=episodes-episode-92045688"
+ },
+ {
+  "episode": "92071277",
+  "file": "replays/submission-55438775/episode-92071277-replay.json",
+  "seat": 1,
+  "me": 43556.0,
+  "them": 49333.0,
+  "delta": -5777.0,
+  "opponent": "AnZ",
+  "result": "LOSS",
+  "seed": "1513446478",
+  "watch": "https://www.kaggle.com/competitions/kaggriculture/leaderboard?dialog=episodes-episode-92071277"
+ },
+ {
+  "episode": "92068347",
+  "file": "replays/submission-55438775/episode-92068347-replay.json",
+  "seat": 1,
+  "me": 45310.0,
+  "them": 49772.0,
+  "delta": -4462.0,
+  "opponent": "tipstar0125",
+  "result": "LOSS",
+  "seed": "1464899450",
+  "watch": "https://www.kaggle.com/competitions/kaggriculture/leaderboard?dialog=episodes-episode-92068347"
+ },
+ {
+  "episode": "92058761",
+  "file": "replays/submission-55438775/episode-92058761-replay.json",
+  "seat": 0,
+  "me": 70333.0,
+  "them": 74750.0,
+  "delta": -4417.0,
+  "opponent": "and more",
+  "result": "LOSS",
+  "seed": "681882602",
+  "watch": "https://www.kaggle.com/competitions/kaggriculture/leaderboard?dialog=episodes-episode-92058761"
  },
  {
   "episode": "92052301",
@@ -204,6 +324,42 @@
   "watch": "https://www.kaggle.com/competitions/kaggriculture/leaderboard?dialog=episodes-episode-92044651"
  },
  {
+  "episode": "92062592",
+  "file": "replays/submission-55438775/episode-92062592-replay.json",
+  "seat": 1,
+  "me": 64603.0,
+  "them": 65117.0,
+  "delta": -514.0,
+  "opponent": "JKM Ventures",
+  "result": "LOSS",
+  "seed": "1853384580",
+  "watch": "https://www.kaggle.com/competitions/kaggriculture/leaderboard?dialog=episodes-episode-92062592"
+ },
+ {
+  "episode": "92055875",
+  "file": "replays/submission-55438775/episode-92055875-replay.json",
+  "seat": 1,
+  "me": 74731.0,
+  "them": 74655.0,
+  "delta": 76.0,
+  "opponent": "\\u5927\\u5c71",
+  "result": "WIN",
+  "seed": "2103094193",
+  "watch": "https://www.kaggle.com/competitions/kaggriculture/leaderboard?dialog=episodes-episode-92055875"
+ },
+ {
+  "episode": "92070272",
+  "file": "replays/submission-55438775/episode-92070272-replay.json",
+  "seat": 1,
+  "me": 66966.0,
+  "them": 65578.0,
+  "delta": 1388.0,
+  "opponent": "Zealous Sebastian",
+  "result": "WIN",
+  "seed": "526479015",
+  "watch": "https://www.kaggle.com/competitions/kaggriculture/leaderboard?dialog=episodes-episode-92070272"
+ },
+ {
   "episode": "92053293",
   "file": "replays/submission-55438001/episode-92053293-replay.json",
   "seat": 0,
@@ -238,6 +394,18 @@
   "result": "WIN",
   "seed": "1447971679",
   "watch": "https://www.kaggle.com/competitions/kaggriculture/leaderboard?dialog=episodes-episode-92049460"
+ },
+ {
+  "episode": "92066427",
+  "file": "replays/submission-55438775/episode-92066427-replay.json",
+  "seat": 1,
+  "me": 68756.0,
+  "them": 65987.0,
+  "delta": 2769.0,
+  "opponent": "Osman Can \\u00c7ETLENB\\u0130K",
+  "result": "WIN",
+  "seed": "74789459",
+  "watch": "https://www.kaggle.com/competitions/kaggriculture/leaderboard?dialog=episodes-episode-92066427"
  },
  {
   "episode": "92053993",
@@ -276,6 +444,42 @@
   "watch": "https://www.kaggle.com/competitions/kaggriculture/leaderboard?dialog=episodes-episode-92049304"
  },
  {
+  "episode": "92085404",
+  "file": "replays/submission-55438775/episode-92085404-replay.json",
+  "seat": 1,
+  "me": 38611.0,
+  "them": 28219.0,
+  "delta": 10392.0,
+  "opponent": "maniginam",
+  "result": "WIN",
+  "seed": "997586056",
+  "watch": "https://www.kaggle.com/competitions/kaggriculture/leaderboard?dialog=episodes-episode-92085404"
+ },
+ {
+  "episode": "92069317",
+  "file": "replays/submission-55438775/episode-92069317-replay.json",
+  "seat": 1,
+  "me": 58392.0,
+  "them": 47598.0,
+  "delta": 10794.0,
+  "opponent": "Anthaus",
+  "result": "WIN",
+  "seed": "19547960",
+  "watch": "https://www.kaggle.com/competitions/kaggriculture/leaderboard?dialog=episodes-episode-92069317"
+ },
+ {
+  "episode": "92103190",
+  "file": "replays/submission-55438775/episode-92103190-replay.json",
+  "seat": 0,
+  "me": 54987.0,
+  "them": 43687.0,
+  "delta": 11300.0,
+  "opponent": "Madhur Sabherwal",
+  "result": "WIN",
+  "seed": "110350939",
+  "watch": "https://www.kaggle.com/competitions/kaggriculture/leaderboard?dialog=episodes-episode-92103190"
+ },
+ {
   "episode": "92044680",
   "file": "replays/submission-55438001/episode-92044680-replay.json",
   "seat": 0,
@@ -298,6 +502,18 @@
   "result": "WIN",
   "seed": "219353320",
   "watch": "https://www.kaggle.com/competitions/kaggriculture/leaderboard?dialog=episodes-episode-92050233"
+ },
+ {
+  "episode": "92065486",
+  "file": "replays/submission-55438775/episode-92065486-replay.json",
+  "seat": 0,
+  "me": 56209.0,
+  "them": 38370.0,
+  "delta": 17839.0,
+  "opponent": "VYSHAKH G NAIR",
+  "result": "WIN",
+  "seed": "692178155",
+  "watch": "https://www.kaggle.com/competitions/kaggriculture/leaderboard?dialog=episodes-episode-92065486"
  },
  {
   "episode": "92047549",
@@ -336,6 +552,18 @@
   "watch": "https://www.kaggle.com/competitions/kaggriculture/leaderboard?dialog=episodes-episode-92046755"
  },
  {
+  "episode": "92060681",
+  "file": "replays/submission-55438775/episode-92060681-replay.json",
+  "seat": 1,
+  "me": 77741.0,
+  "them": 49573.0,
+  "delta": 28168.0,
+  "opponent": "yunus yavuz",
+  "result": "WIN",
+  "seed": "815372912",
+  "watch": "https://www.kaggle.com/competitions/kaggriculture/leaderboard?dialog=episodes-episode-92060681"
+ },
+ {
   "episode": "92054246",
   "file": "replays/submission-55438001/episode-92054246-replay.json",
   "seat": 0,
@@ -370,6 +598,18 @@
   "result": "WIN",
   "seed": "829473420",
   "watch": "https://www.kaggle.com/competitions/kaggriculture/leaderboard?dialog=episodes-episode-92052103"
+ },
+ {
+  "episode": "92063569",
+  "file": "replays/submission-55438775/episode-92063569-replay.json",
+  "seat": 0,
+  "me": 76641.0,
+  "them": 38473.0,
+  "delta": 38168.0,
+  "opponent": "toxic_2499",
+  "result": "WIN",
+  "seed": "32722726",
+  "watch": "https://www.kaggle.com/competitions/kaggriculture/leaderboard?dialog=episodes-episode-92063569"
  },
  {
   "episode": "92038971",

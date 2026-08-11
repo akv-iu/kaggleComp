@@ -14,6 +14,9 @@ $logPath = Join-Path $runtime "automation.log"
 $runLog = Join-Path $runtime "run_output.log"
 $requestPath = Join-Path $runtime "submit_request.json"
 $indexPath = Join-Path $workspace "replay_index.json"
+# Dropped by the `finally` below, so it only survives a run that was *killed*:
+# the task's execution time limit, a reboot, a lost logon session.
+$inFlightPath = Join-Path $runtime "run_in_flight"
 # Mirror gain below this is indistinguishable from a change that merely acts
 # sooner than a slower copy of itself. Calibrated on two submissions: v7 won the
 # head-to-head 7/8 at +$1,504, showed +84 in the mirror, and lost 36 points of
@@ -72,12 +75,31 @@ function Reject([string]$reason) {
     Write-Log "$reason Improvement remains active."
     Copy-Item -LiteralPath (Join-Path $runtime "baseline_main.py") -Destination (Join-Path $workspace "main.py") -Force
     Copy-Item -LiteralPath (Join-Path $runtime "baseline_test_agent.py") -Destination (Join-Path $workspace "test_agent.py") -Force
+    # A rejected run is where most of the learning is: three measured experiments
+    # and the reason each failed. Save-Work used to run only after a successful
+    # submission, so that evidence sat uncommitted until some later run happened
+    # to ship. The code is already rolled back, so this commits ledgers only.
+    Save-Work "automation: rejected experiments, ledgers updated"
     exit 0
 }
 
 try {
     Set-Location -LiteralPath $workspace
     New-Item -ItemType Directory -Path $runtime -Force | Out-Null
+
+    # A killed run never reaches Reject, so the half-finished experiment it left
+    # in main.py would silently become the next run's baseline -- the exact thing
+    # Reject exists to prevent. Roll it back before doing anything else.
+    if (Test-Path -LiteralPath $inFlightPath) {
+        $priorMain = Join-Path $runtime "baseline_main.py"
+        if (Test-Path -LiteralPath $priorMain) {
+            Copy-Item -LiteralPath $priorMain -Destination (Join-Path $workspace "main.py") -Force
+            Copy-Item -LiteralPath (Join-Path $runtime "baseline_test_agent.py") `
+                -Destination (Join-Path $workspace "test_agent.py") -Force
+            Write-Log "Previous run was interrupted; rolled main.py and test_agent.py back to its snapshots."
+        }
+        Remove-Item -LiteralPath $inFlightPath -Force
+    }
 
     if (-not (Test-Path -LiteralPath $statePath)) {
         @{ submissionsUsed = 1; submissionLimit = 5; lastSubmissionId = "55413328"; needsImprovement = $true } |
@@ -186,6 +208,8 @@ try {
     Copy-Item -LiteralPath (Join-Path $workspace "memory.md") -Destination (Join-Path $runtime "baseline_memory.md") -Force
     Copy-Item -LiteralPath (Join-Path $workspace "decision.md") -Destination (Join-Path $runtime "baseline_decision.md") -Force
     if (Test-Path -LiteralPath $requestPath) { Remove-Item -LiteralPath $requestPath -Force }
+    # Everything from here can leave main.py mid-edit if the process is killed.
+    New-Item -ItemType File -Path $inFlightPath -Force | Out-Null
 
     $index = AsArray (Get-Content -Raw -LiteralPath $indexPath | ConvertFrom-Json)
     $losses = @($index | Where-Object { $_.result -eq "LOSS" })
@@ -302,6 +326,8 @@ try {
 } catch {
     Write-Log "ERROR: $($_.Exception.Message)"
 } finally {
+    # Runs on `exit` too, so the marker is left behind only by a killed process.
+    if (Test-Path -LiteralPath $inFlightPath) { Remove-Item -LiteralPath $inFlightPath -Force }
     $mutex.ReleaseMutex()
     $mutex.Dispose()
 }

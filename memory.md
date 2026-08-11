@@ -99,33 +99,27 @@ This is the durable evidence ledger for the optimizer. Read it before choosing a
 
 ## Strategies that did not work (yet)
 
-### Large strawberry fields with the current greedy dispatcher
+### Strawberry: four refusals, and the fourth one finally located the gap
 
-- **Attempt:** 42 strawberry tiles plus 12 melon tiles, 14-animal cap, 3 land carriers, and 4 feed carriers.
-- **Evidence:** Averaged about 59,044 versus v5's 80,364 and lost 8/8. The field crowded out the herd and only 8 animals were acquired.
-- **Why it failed in this pairing:** The dispatcher, pathing, and labor model could not service a crop field and herd simultaneously.
-- **Test again only with:** Route zoning or task batching, crop-aware staffing, a minimum viable herd floor, and proof that crop harvest/sale actions complete on time.
+- **What the field does.** Every opponent above $120k in the replay index - wenjinyang $175,862, Stanislav Ilin $150,498, VictorAndrew $145,288, BlackPearls1 $124,672 - plays one identical farm: **36-42 strawberry tiles planted day 7-12**, 12-14 melon tiles to fund them, 8-9 cows and 4-6 sheep and *no geese*, three quadrants, and the dead berry tiles dug over into 30-50 wheat tiles after day 20. Reconstructing wenjinyang's $175,862 against our $69,326 in the same episode: their milk, wool and fertilizer income is roughly **equal** to ours. The whole gap is strawberry (~$80k) plus late wheat (~$14k). They do not out-farm us at what we do - they sell a product we have never sold one unit of.
+- **Why the market allows it.** Four of the eight shops list STRAWBERRY (ICE_CREAM, SMOOTHIE, BRUNCH, FARMERS_MARKET) against one for WOOL and none for MELON, so the town drains ~500-600 units a season. It is the most-drained good in the game and ends at $217-311 against a $120 base in every replay, including ones where neither farm grew it.
+- **The mechanism the first three refusals were missing.** They tested 8 and 12 tiles and all harvested exactly **4 units a tile - the full unfertilized ceiling**. `yield_units` caps at `max_yield` = 4 held, so four productions of +1 is four units however you harvest. A fertilized *and watered* production adds +2, and with a harvest between them the tile gives **eight**. The FERTILIZE engine only landed in v8, after the last refusal, so no strawberry test had ever run with it. Related: `production_day` for an ongoing crop is `age + 1 - first`, not `age - first` - the nightly refresh counts from tomorrow, so strawberry planted day 0 produces on the nights of days 9, 11, 13, 15.
+- **Evidence at 40 tiles with fertilizer:** **6/8**, mean +$1,516.9, **mirror +$4,682.4**, all DONE - a production gain, not a racing one, and the closest any change has come to the field's plan. Rejected only on the 7/8 win count. 224 units sold a game at $199-260, ~7 a tile.
+- **What still blocks it:** the herd falls 16 animals to 8, because berry seed and livestock draw on the same cash between days 6 and 13. See the two dispatcher defects below; the second is the live one.
+- **Test again only with:** the late-goose leak closed. Do not retry by varying tile counts, slot costs, planting order or sell rules - all four have now been varied across four attempts.
 
-### Optimistic capacity costs (`ANIMAL_SLOTS=6`, `PLANT_SLOTS=2`)
+### Capacity and hiring demand are different questions (`PLANT_SLOTS`)
 
-- **Evidence:** Averaged 57,836 versus 83,818 and lost 8/8; a representative game bought 9 animals and kept 4.
-- **Why it failed in this pairing:** Capacity estimates also drove hiring, so lowering them reduced the crew and caused starvation/escape.
-- **Test again only with:** Planning capacity decoupled from labor demand plus an invariant that feed and care work always clears.
+- **Lesson:** `PLANT_SLOTS` was read both as *how much of the crew a tile consumes* and as *how many hands to hire*. Halving it to make room for crops therefore halved the crew: 7 hands against the baseline's 11, and 16 of 40 strawberry seeds bought and never planted.
+- **Fix that worked:** split into `PLANT_SLOTS` (capacity, 2) and `PLANT_LOAD` (hiring, 4). Crew back to 12-14, tiles planted 24 to 32. The field settles the capacity number: the leaders keep 14 animals and 54 plants on 11 hands, which is 2 slots a plant, not 4.
+- **Note:** this is *not* the rejected "denser planning capacity" result. That one lowered `ANIMAL_SLOTS`, and animals cost $300-500 plus a `FEED_DAYS` reserve the moment they are planned. A plant costs $10-100.
 
-### Small strawberry hybrid under the livestock scheduler
+### One undelivered animal deadlocks the whole herd pipeline
 
-- **Attempt:** Add 12 strawberry tiles to the v5 plan.
-- **Evidence:** Averaged 70,232 versus 78,026 and lost 8/8.
-- **Why it failed in this pairing:** Even a modest crop allocation displaced higher-return herd work before routing and staffing were crop-aware.
-- **Test again only with:** Nothing under the current cash curve - see below. This diagnosis was wrong; the constraint was never staffing.
-
-### Strawberry at any slot cost (three refusals, now with a mechanism)
-
-- **Attempt:** The named missing pairing - give the crop its own halved slot cost (`BERRY_SLOTS = 2`), plant it last behind melon, livestock and feed wheat, fund seed only from the investment budget, and give it a sell rule. Eight tiles.
-- **Evidence:** 0/8 at -$6,213, every status DONE, costing about $9,800 next to the fertilize-only agent. The crop itself performed perfectly: 8 tiles planted, 32 units harvested and sold, the full unfertilized yield. Seed 3: 15 animals versus 19, milk 96 versus 147, wool 70 versus 101, about $6,400 of strawberry against roughly $16,000 of forgone animal production - and PASS *rose* from 1,255 to 1,534.
-- **Why it failed in this pairing:** Idle time went up, so labour was never the constraint; cash was. $800 of early seed is two cows that would have compounded for twenty days. More fundamentally, strawberry needs 16 days, so it must go in the ground by day 13, and the farm is cash-poor until about day 13-15: **its planting deadline lies entirely inside the phase where capital is scarcest.** The $318 end price is a consequence of nobody growing it, not an opportunity - a crop planted at the deadline first produces on day 23.
-- **Test again only with:** Proof that the animal pipeline is slot-limited rather than cash-limited before day 13. Do not retry by tuning tile counts, slot costs, planting order or sell rules; all four have now been varied and the loss is structural.
-- **Standing lesson:** On this farm, when a change frees actions, PASS goes up and money does not. Cash and the compounding herd are the binding constraint in every experiment that has ever won. Prefer changes that add cash or subtract cost over changes that add work.
+- **Measured:** wrapping `_scan` and classifying every turn's build decision showed the pipeline blocked on `want pending (COW)` for **288 consecutive turns, days 14 to 25**. Not cash, not slots. The farm grows one head at a time, so a single animal still in transit stops the next structure being built *and* the next beast being bought. `PLACE` sat at priority 1 while crop watering sat at 0, so the unit carrying the cow was eligible for a water job every turn and never reached the pasture.
+- **Why the obvious fix is not enough:** moving `PLACE` to -1 works - seed 2's mirror went $69,323 to $91,010 and its animal purchases 8 to 18 - but the candidate scored **4/8** and the mirror gain collapsed to +$1,124.5. With the pipeline unblocked the farm buys 17-18 animals, and `_next_animal` retires cows at day 19 and sheep at day 20 while geese run to day 24, so the freed late cash goes into **geese: 8 instead of 3**. A goose bought day 22 returns ~$350 of egg against ~$378 of feed. The deadlock was suppressing a loss-making purchase; fixing it exposed one.
+- **How to apply:** fix what the pipeline buys before unblocking it. A goose stops paying around day 20, not day 24.
+- **Best distinct next hypothesis:** Retire GOOSE in `_next_animal` once its feed bill exceeds its egg revenue - a bird bought on day `d` yields `29 - d - 4` eggs at ~$50 against `29 - d` days of wheat at the live quote, so its real deadline is ~day 20, not day 24. Then re-run the 40-tile berry farm *plus* the `PLACE` priority fix. That is the one combination not yet measured: the crop that cleared the mirror at +$4,682, the deadlock fix that doubles the herd, and a deadline that stops the freed cash buying birds that lose money.
 
 ### Aggressive hiring as the sole repair for crop-heavy plans
 
@@ -180,6 +174,7 @@ This is the durable evidence ledger for the optimizer. Read it before choosing a
 - **Evidence:** Won 5/8 and averaged 79,069.5 versus 78,021.1 (+1,048.4), with every status DONE and all local checks passing. Several pairings gained over $4,000, but three losses erased most of the fee saving.
 - **Why it failed in this pairing:** Even a sparsely occupied fourth quadrant can be valuable as a shed-adjacent route zone. The hard cap saves cash in some market/layout conditions but cannot distinguish them from seeds where the SE dock repays its fee.
 - **Test again only with:** A conditional or delayed fourth unlock based on measured occupancy around the first three docks and queued route pressure. Fewer quadrants are not universally bad; unconditional removal is too coarse.
+- **Confirmed again 2026-08-11:** re-tested inside the 40-tile strawberry farm, where $4,000 is exactly the berry seed bill and the farm still ends with 89 bare tiles. Removing the cap did not restore the seeds it appeared to have damaged, so it is near-neutral there too - the fourth quadrant is neither the waste nor the fix it looks like.
 - **Best distinct next hypothesis:** Delay the fourth land purchase until the existing three dock neighborhoods are saturated or measured work queues cannot clear, preserving the SE dock only in seeds where its throughput can repay $4,000.
 
 ### Multi-dock pickups without persistent route ownership
