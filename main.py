@@ -71,13 +71,16 @@ MELON_LAST_DAY = 14
 # Wheat tiles per animal owned. A tile yields four wheat every five days, so 1.25
 # would feed the herd outright -- but a plant costs more slots than the animal it
 # feeds, so cover part of the bill and buy the rest.
-WHEAT_PER_ANIMAL = 0.3
+WHEAT_PER_ANIMAL = 0.75
+ENDGAME_WHEAT_TILES = 10
 
-# Tending capacity, in slots. A unit gets 24 actions a day and burns roughly a
-# third of them walking, so ~16 useful actions: four animals (feed, care, harvest,
-# collect fertilizer) or three plants plus the walking between them.
+# Tending capacity, in slots. A unit gets 24 actions a day but also spends time
+# walking and hauling feed, so it can reliably cover two animals or four plants.
 SLOTS_PER_UNIT = 18
-ANIMAL_SLOTS = 3
+# Replays show that one unit can reliably service about two animals once walking,
+# shed runs, and the four daily chores are included. The old value (3) planned
+# for six animals per unit and bought replacements as the excess herd escaped.
+ANIMAL_SLOTS = 9
 PLANT_SLOTS = 4
 # Hands are hired per day at fib(n) = 1,1,2,3,5,8,13,21,... and are refunded
 # nightly, so the crew is an operating cost, not an investment: 12 hands is $143 a
@@ -88,7 +91,7 @@ HIRE_FRAC = 0.02
 HIRE_MIN = 25
 MAX_HANDS = 16
 # How many units may be sent to the shed for the same item in one turn.
-MAX_CARRIERS = 4
+MAX_CARRIERS = 8
 
 # Per-turn sell cap and price floor, richest first -- only 10 market orders fit in
 # a turn. Caps are per turn, so cap 1 still moves 24 units a day. WHEAT is missing
@@ -96,7 +99,14 @@ MAX_CARRIERS = 4
 SELL_RULES = {
     "MILK":       (2, 110),
     "WOOL":       (2, 130),
-    "FERTILIZER": (3,  50),
+    # Fertilizer is the one good we glut: ~292 units a game against milk's 135,
+    # and no shop drains it, so its price falls all season and ends near $1. A
+    # floor is a bet on recovery, and there is none to wait for -- it just parked
+    # 45-53 units in the shed from day 20 and sold them on the last day at the
+    # bottom, while filling half the shed and tipping the rest of the farm into
+    # pressure dumping. Keep collecting it (removing that lost 8/8, -$8,435) and
+    # sell it as it arrives instead.
+    "FERTILIZER": (3,   5),
     "MELON":      (1, 120),
     "EGG":        (99, 25),
 }
@@ -194,6 +204,11 @@ def _plantable(crop, seeds, day):
     return seeds.get(crop, 0) > 0 and day + _harvest_day(crop) <= LAST_DAY
 
 
+def _wheat_target(n_animals, day):
+    return max(round(n_animals * WHEAT_PER_ANIMAL),
+               ENDGAME_WHEAT_TILES if day >= 20 else 0)
+
+
 def _scan(tiles, day, hour, seeds, slots, money, stock):
     """Return (jobs, want, grown).
 
@@ -222,12 +237,17 @@ def _scan(tiles, day, hour, seeds, slots, money, stock):
                 crop = t["crop"]
                 age = day - t["planted_day"]
                 grown[crop] = grown.get(crop, 0) + 1
-                if not t["watered_today"]:
+                c = CROPS[crop]
+                bonus_window = not c["ongoing"] and age >= (c["maxday"] + 1) // 2
+                production_day = (c["ongoing"] and age >= c["first"]
+                                  and (age - c["first"]) % c["interval"] == 0)
+                if (not t["watered_today"]
+                        and (t.get("consecutive_unwatered", 0) > 0
+                             or bonus_window or production_day)):
                     # Two dry days turns the tile into a weed, and watering inside
                     # the bonus window is where the yield actually comes from.
                     jobs.append((0, x, y, ["WATER"], None))
                 elif t["yield_units"] > 0:
-                    c = CROPS[crop]
                     if age >= (c["first"] if c["ongoing"] else _harvest_day(crop)):
                         jobs.append((1, x, y, ["HARVEST"], None))
             elif "animal" in t:
@@ -237,7 +257,7 @@ def _scan(tiles, day, hour, seeds, slots, money, stock):
                 # collect branch matches first, every single day, forever -- and
                 # CARE is the difference between a cow giving 1 milk and 3.
                 counts[t["animal"]] += 1
-                if not t.get("fed_today"):
+                if day < LAST_DAY and not t.get("fed_today"):
                     jobs.append((0, x, y, ["FEED"], "WHEAT"))
                 if t.get("yield_units", 0) > 0:
                     jobs.append((1, x, y, ["HARVEST"], None))
@@ -245,7 +265,7 @@ def _scan(tiles, day, hour, seeds, slots, money, stock):
                     # One action for a $100 good the town never buys, so nobody
                     # else is selling it either. Outranks caring for a goose.
                     jobs.append((2, x, y, ["COLLECT_FERTILIZER"], None))
-                if not t.get("cared_today"):
+                if day < LAST_DAY and not t.get("cared_today"):
                     # CARE banks +1 on the next production, and the bank is not
                     # cleared until then: a cow cared on both days between
                     # productions yields 3 milk instead of 1.
@@ -270,7 +290,11 @@ def _scan(tiles, day, hour, seeds, slots, money, stock):
     # coops looks like 29 units of work to the hiring rule and like a farm with no
     # room to the land rule, and it is neither -- it is just an unpaid intention.
     budget = money - CASH_FLOOR
-    want_wheat = round(sum(counts.values()) * WHEAT_PER_ANIMAL)
+    want_wheat = _wheat_target(sum(counts.values()), day)
+    docks = _shed_tiles(tiles)
+    if docks:
+        empty.sort(key=lambda p: min(abs(p[0] - x) + abs(p[1] - y)
+                                    for x, y in docks))
     for (x, y) in empty:
         if (grown.get("MELON", 0) < MELON_TILES and day <= MELON_LAST_DAY
                 and can_plant and slots >= PLANT_SLOTS
@@ -280,12 +304,16 @@ def _scan(tiles, day, hour, seeds, slots, money, stock):
             grown["MELON"] = grown.get("MELON", 0) + 1
             jobs.append((2, x, y, ["PLANT", "MELON"], None))
             continue
-        if slots >= ANIMAL_SLOTS and budget >= ANIMALS["GOOSE"]["cost"]:
+        # Grow one head at a time. An empty structure is already the next animal
+        # in the pipeline; building dozens more only creates walking jobs and a
+        # misleading hiring load.
+        if not want and slots >= ANIMAL_SLOTS:
             a = _next_animal(counts, day)
-            if a is not None:
+            if a is not None and budget >= ANIMALS[a]["cost"]:
                 budget -= ANIMALS[a]["cost"]
                 slots -= ANIMAL_SLOTS
                 counts[a] += 1
+                want[a] = 1
                 jobs.append((2, x, y, BUILD[ANIMALS[a]["structure"]], None))
                 continue
         # Land we cannot stock goes under wheat. Feed is the herd's only running
@@ -404,7 +432,7 @@ def _market(me, priv, obs, load, n_animals, want, carried, grown):
     # 1. Hire, before anything else can spend the cash. Hands are the cheapest
     # throughput there is, they only work for the rest of the day, and everything
     # else we might buy is worthless without crew to tend it.
-    if hour <= 2 and day < LAST_DAY:
+    if hour <= 2 and day <= LAST_DAY:
         n = me["hires_today"]
         crew_cap = -(-load // SLOTS_PER_UNIT)
         while len(orders) < 8 and n < min(MAX_HANDS, crew_cap):
@@ -430,6 +458,10 @@ def _market(me, priv, obs, load, n_animals, want, carried, grown):
             orders.append(["SELL", item, min(have, cap * 4)])
         elif prices.get(item, 0) >= floor:
             orders.append(["SELL", item, min(have, cap)])
+    if not endgame and len(orders) < 9:
+        surplus = shed.get("WHEAT", 0) - n_animals - FEED_BUFFER
+        if surplus > 0 and prices.get("WHEAT", 0) >= 20:
+            orders.append(["SELL", "WHEAT", min(surplus, 12)])
     if endgame:
         if shed.get("WHEAT", 0) > 0:
             orders.append(["SELL", "WHEAT", shed["WHEAT"]])
@@ -478,7 +510,7 @@ def _market(me, priv, obs, load, n_animals, want, carried, grown):
     # Feed wheat. Seed is $10 against a market price north of $50 a head per day,
     # so this is the cheapest cash on the board -- it comes out of upkeep, not the
     # investment budget, for the same reason the feed itself does.
-    n_wheat = round(n_animals * WHEAT_PER_ANIMAL) - grown.get("WHEAT", 0)
+    n_wheat = _wheat_target(n_animals, day) - grown.get("WHEAT", 0)
     if (len(orders) < 10 and n_wheat > seeds.get("WHEAT", 0)
             and day + _harvest_day("WHEAT") <= LAST_DAY):
         n = min(n_wheat - seeds.get("WHEAT", 0),
@@ -527,11 +559,12 @@ def agent(obs):
                 n_struct += 1
     slots = max(0, crew * SLOTS_PER_UNIT
                 - n_plants * PLANT_SLOTS - n_animals * ANIMAL_SLOTS)
-    # What the crew will have to cover once the empty structures and bare tiles
-    # are stocked -- an empty coop is a day away from being work, and hiring one
-    # day at a time is how the farm ends up with one hand and a dead herd.
-    load = (n_plants * PLANT_SLOTS
-            + (n_animals + n_struct + n_empty_tiles) * ANIMAL_SLOTS)
+    # Empty structures are work already committed; untouched land is not.
+    load = (n_plants * PLANT_SLOTS + (n_animals + n_struct) * ANIMAL_SLOTS)
+    # Hire one unit ahead of the current workload so the farm can grow without
+    # paying a crew for every untouched square of unlocked land.
+    if n_empty_tiles and obs["day"] < LAST_DAY:
+        load += SLOTS_PER_UNIT
 
     carried = {}
     for inv in invs:
