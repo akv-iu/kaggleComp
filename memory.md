@@ -52,6 +52,27 @@ This is the durable evidence ledger for the optimizer. Read it before choosing a
 - **Required pairing:** Keep collecting the fertilizer. The complementary attempt that gated *collection* on the same $50 floor lost 0/8 at -$8,435.6; the waste was the hoarding, never the production.
 - **Reconsider if:** A shop unlock starts draining fertilizer, or its price stops decaying across the season.
 
+### Read the environment source, not the agent's own comments
+
+- **Strategy:** `.venv/Lib/site-packages/kaggle_environments/envs/kaggriculture/kaggriculture.py` is the ground truth for every economic constant. Read it before reasoning about prices, yields, or actions.
+- **Why it works:** Twenty-plus experiments in this ledger tuned constants inside a model taken from `main.py`'s own docstring, and that model was wrong in three ways that matter. The whole `FERTILIZE` action existed unused for the entire project.
+- **Evidence — the facts that changed the strategy:**
+  - `TOWN_CENTER_PRODUCTS` excludes FERTILIZER and no shop lists it, so **nothing anywhere drains fertilizer**. Its market inventory can only rise, so its price can only fall. It is not a normal good.
+  - `TOWN_CENTER_DEMAND_SCHEDULE = [(20, 4), (10, 2), (0, 1)]`: town demand **quadruples after day 20**.
+  - Almost every other product sits in *scarcity*, not glut, because the town drains faster than two farms supply. Final versus base price: STRAWBERRY 318/120, WOOL 247/200, MILK 238/160, TOMATO 101/60, WHEAT **55/25**. The agent's floors and drip caps are glut protection for a glut that never arrives.
+  - `FERTILIZE` (one action, one fertilizer) sets `fertilized_until_day = day + 2` and doubles what each watering adds. Wheat's watering window is exactly 3 days wide.
+  - Ongoing crops accrue yield whether or not they are watered; watering only prevents the weed death and gates the fertilizer bonus.
+- **Required pairing:** Nothing. This is free and should precede every future hypothesis.
+- **Reconsider if:** Never.
+
+### Spend fertilizer on wheat instead of selling it
+
+- **Strategy:** Emit a priority-0 `FERTILIZE` job for any wheat tile inside its watering window that is not already fertilized.
+- **Why it works:** It converts the one product with zero market demand into the one input the farm buys most. Wheat is the only crop with yield headroom (plain watering reaches 4 of a cap of 6; fertilized reaches the cap), and one fertilize covers wheat's entire 3-day window. Measured effect: wheat purchases fall from ~140 units a game to ~90 while the herd stays the same size, and the farm stops bidding up a price it is itself pushing into scarcity.
+- **Evidence:** 14/16 wins over seeds 0-7 in both seats, averaging +$3,566.5, every status DONE. Standalone episode $94,714 to $100,010. 48 FERTILIZE actions a game, drawn from the 292 the farm already collects.
+- **Required pairing:** Priority 0. Demoting it is worse than not doing it at all (2/8 at priority 1, 1/8 at priority 2) because the bonus is credited by waterings inside a 3-day window, so a late fertilize is pure walking. Also pairs with selling the remainder promptly - see the fertilizer floor entry.
+- **Reconsider if:** A shop ever drains fertilizer, or wheat stops being bought.
+
 ### Measure the farm before theorising about it
 
 - **Strategy:** Instrument a real game - action histogram, direction reversals, PASS causes, per-product revenue - before choosing a hypothesis.
@@ -225,3 +246,17 @@ This is the durable evidence ledger for the optimizer. Read it before choosing a
 - **Why it failed in this pairing:** This reclassifies the earlier `ANIMAL_SLOTS = 6` result. Dense planning is bad on its own merits, not merely because it starved the crew: extra heads cost cash and the `FEED_DAYS` reserve immediately, their chores spread further across the map, and the idle actions are not located where the new structures would stand.
 - **Test again only with:** Evidence that PASS actions occur adjacent to the tiles the new structures would occupy. Aggregate idleness has now failed as a signal four separate times.
 - **Best distinct next hypothesis:** Stay on the revenue side, which paid immediately. MILK and WOOL still end at $238 and $247, i.e. scarce at the final bell, under a 2-per-turn cap and $110/$130 floors. Test raising those caps or lowering those floors so premium output is not still queued when the season ends.
+
+### Gating the fertilize decision, by price or by calendar
+
+- **Attempts:** Fertilize only while `FERTILIZER < 2 x WHEAT` (the exact break-even, since one fertilizer yields two wheat); and separately, only from day 4 onward.
+- **Evidence:** The live-price gate scored 2/8 at -$926; the day-4 gate screened at +$464/+$4,033 on seed 0 and -$7,161/-$7,239 on seed 1. Ungated scores 14/16 at +$3,566.5.
+- **Why they failed in this pairing:** The break-even arithmetic is right and still loses. A live comparison flickers across the threshold as prices move, and a fertilize job abandoned mid-window is walking that buys nothing - the same timing sensitivity that makes priorities 1 and 2 lose. The day gate is monotone but blocks the early tiles where the compounding starts.
+- **Test again only with:** A latching gate that never switches back off once it opens. Do not re-test a per-turn recomputed condition on `FERTILIZE`; three separate variants have now failed on timing rather than on economics.
+
+### Reading single-seed differences between variants as signal
+
+- **Attempt:** Diagnosing seed 1, the one seed where fertilizing loses (both seats, about -$5,000), by comparing variants seed by seed.
+- **Evidence:** Day-by-day tracing showed a real mechanism - fertilizer is still worth $89 on day 10, so early diversion costs cash that compounds into two fewer animals by day 15 and never recovers. But every fix aimed at seed 1 lost more elsewhere than it recovered there, and variants reshuffled which seeds won.
+- **Why it misleads:** Both agents trade into one shared market, so any perturbation moves the whole price path and the opponent's behaviour with it. Individual seeds are chaotic; only the aggregate over many seeds is stable. Four seeds gave 6/8 (+$2,441) for a change that eight seeds scored at 14/16 (+$3,566.5).
+- **Test again only with:** Eight seeds or more before believing a per-seed story. The 4-seed benchmark is a screen, not a verdict, for changes that move market prices.

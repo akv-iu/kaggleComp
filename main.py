@@ -241,6 +241,19 @@ def _scan(tiles, day, hour, seeds, slots, money, stock):
                 bonus_window = not c["ongoing"] and age >= (c["maxday"] + 1) // 2
                 production_day = (c["ongoing"] and age >= c["first"]
                                   and (age - c["first"]) % c["interval"] == 0)
+                # Fertilizer doubles what a watering adds and lasts three days --
+                # exactly wheat's window (age 2,3,4) -- so one action takes the
+                # tile from 4 units to its cap of 6. Wheat is the only crop with
+                # headroom; melon already waters 7 times into a cap of 6. Selling
+                # it instead is the losing side of the trade: nothing drains the
+                # fertilizer market so it only falls, while five shops drain wheat
+                # so feed only climbs. Priority 0 despite forgoing a bonus rather
+                # than preventing a loss -- the yield is credited by the waterings
+                # inside the window, so a late fertilize is pure walking (measured
+                # 2/8 at priority 1, 1/8 at priority 2, against 14/16 here).
+                if (crop == "WHEAT" and bonus_window and age <= c["maxday"]
+                        and t.get("fertilized_until_day", -1) < day):
+                    jobs.append((0, x, y, ["FERTILIZE"], "FERTILIZER"))
                 if (not t["watered_today"]
                         and (t.get("consecutive_unwatered", 0) > 0
                              or bonus_window or production_day)):
