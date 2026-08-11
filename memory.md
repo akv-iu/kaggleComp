@@ -52,6 +52,13 @@ This is the durable evidence ledger for the optimizer. Read it before choosing a
 - **Required pairing:** Keep collecting the fertilizer. The complementary attempt that gated *collection* on the same $50 floor lost 0/8 at -$8,435.6; the waste was the hoarding, never the production.
 - **Reconsider if:** A shop unlock starts draining fertilizer, or its price stops decaying across the season.
 
+### Local self-play overvalues racing an opponent to a shared pool
+
+- **Lesson:** `verify.py` plays the candidate against a copy of the baseline in the same market. Any change that simply acts *sooner* than the opponent on a shared, finite resource wins locally by beating a slower copy of itself, and that edge does not exist against a field that already acts promptly.
+- **Evidence:** v7 dropped the fertilizer sell floor from $50 to $5 and won 7/8 locally at +$1,503.9. Its public rating came back **623.7, down 35.9 from v6's 659.6** - the first regression since v4. Fertilizer is the clearest case in the game: nothing anywhere drains it, so its price is a strictly decreasing shared pool, and selling faster only moves who gets the top of a curve both farms are pushing down.
+- **How to apply:** Before trusting a local win, ask whether the gain comes from *producing or saving more* or merely from *getting there first*. The first generalises to the real field; the second does not. More seeds do not fix this - it is a bias in the benchmark's design, not its sample size.
+- **Reconsider if:** A change's advantage can be shown to hold with the opponent making the identical move at the identical time.
+
 ### Read the environment source, not the agent's own comments
 
 - **Strategy:** `.venv/Lib/site-packages/kaggle_environments/envs/kaggriculture/kaggriculture.py` is the ground truth for every economic constant. Read it before reasoning about prices, yields, or actions.
