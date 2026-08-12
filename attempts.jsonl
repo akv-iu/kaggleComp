@@ -34,3 +34,4 @@
 {"title": "Strawberry on its own slot cost (rejected, third strawberry refusal)", "verdict": "rejected", "wins": null, "mean": null}
 {"title": "v7 public rating regressed; v8 submitted (score evidence)", "verdict": "unknown", "wins": "7/8", "mean": "$5"}
 {"title": "Rebuild the improvement loop around losses, not averages (process change)", "verdict": "process", "wins": null, "mean": null}
+{"title": "Strawberry at field scale (rejected, fourth strawberry refusal - but the diagnosis changed)", "verdict": "rejected", "wins": null, "mean": "+$1,516.0"}

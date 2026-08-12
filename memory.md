@@ -96,6 +96,14 @@ This is the durable evidence ledger for the optimizer. Read it before choosing a
 - **Required pairing:** Priority 0. Demoting it is worse than not doing it at all (2/8 at priority 1, 1/8 at priority 2) because the bonus is credited by waterings inside a 3-day window, so a late fertilize is pure walking. Also pairs with selling the remainder promptly - see the fertilizer floor entry.
 - **Reconsider if:** A shop ever drains fertilizer, or wheat stops being bought.
 
+### Unblock the herd pipeline, but cap the wage curve in the same change
+
+- **Strategy:** Three edits that only work together. `PLACE` at priority **-1**, ahead of watering and feeding. A per-species `last` buy-day in `ANIMALS` (GOOSE **20**, COW 19, SHEEP 20) replacing the generic "must reach one production" deadline. And a flat `HIRE_MAX_WAGE = 144` in place of `max(HIRE_MIN, money * HIRE_FRAC)`.
+- **Why it works:** the farm grows one head at a time, so one animal still riding in a carrier's pack blocks the next structure *and* the next purchase - measured 288 consecutive turns stuck on `want pending (COW)`, days 14-25, purely because the carrier stayed eligible for priority-0 water jobs. Unblocking it buys 21 head instead of 16 and raises every productive action (CARE 377 v 282, FEED 354 v 278, HARVEST 217 v 182). But the extra herd raises `load`, `load` raises `crew_cap`, and the crew walks into the exponential tail of `fib`: hands 13-16 cost $2,207 a day, 85% of the wage bill for 25% of the crew. Because the old ceiling was proportional to the bank, it bought that tail hardest in the final week, when a hand has fewest days left to repay it. **A hand-day is not worth more because the bank is fuller.**
+- **Evidence:** 8/8 at 4 seeds, +$10,041.0, **mirror +$11,234.8**, all DONE; 15/16 at 8 seeds, +$7,649.5, mirror +$8,422.0. Mirror games reach $95,972, above our best public game ever. The leak that made this necessary was measured, not guessed: on the losing seed, revenue rose $16,745 (milk +$10,222, wool +$6,029) while hire spend rose $5,110 to $21,101.
+- **Required pairing - all three, and the attribution is unusually clean.** Wage cap alone: **1/8, +$32, mirror +$431**. `PLACE` + goose deadline, no wage cap: **4/8, +$1,765, mirror +$553**. `PLACE` + wage cap, geese left at day 24: **7/8, +$5,722, mirror +$6,680**. All three: 8/8. The pipeline fix creates the herd, the goose deadline decides what the freed cash buys, the wage cap stops the crew that herd justifies from costing more than the herd earns.
+- **Reconsider if:** anything raises `load` a lot - a large crop area in particular - because `HIRE_MAX_WAGE` is a hard ceiling on the crew. It came from a three-point screen (89 -> 3/4; 144 -> 4/4 +$9,122; 233 -> 4/4 +$7,420); re-screen it rather than assume 144 travels. This also supersedes the old "static 10-hand cap" refusal: capping the crew *by headcount* failed (6/8, +$777) because it removed profitable throughput along with idle labour; capping it **by marginal wage** works because the fib curve, not the headcount, is what makes the last hands unprofitable.
+
 ### Measure the farm before theorising about it
 
 - **Strategy:** Instrument a real game - action histogram, direction reversals, PASS causes, per-product revenue - before choosing a hypothesis.
@@ -112,8 +120,8 @@ This is the durable evidence ledger for the optimizer. Read it before choosing a
 - **Why the market allows it.** Four of the eight shops list STRAWBERRY (ICE_CREAM, SMOOTHIE, BRUNCH, FARMERS_MARKET) against one for WOOL and none for MELON, so the town drains ~500-600 units a season. It is the most-drained good in the game and ends at $217-311 against a $120 base in every replay, including ones where neither farm grew it.
 - **The mechanism the first three refusals were missing.** They tested 8 and 12 tiles and all harvested exactly **4 units a tile - the full unfertilized ceiling**. `yield_units` caps at `max_yield` = 4 held, so four productions of +1 is four units however you harvest. A fertilized *and watered* production adds +2, and with a harvest between them the tile gives **eight**. The FERTILIZE engine only landed in v8, after the last refusal, so no strawberry test had ever run with it. Related: `production_day` for an ongoing crop is `age + 1 - first`, not `age - first` - the nightly refresh counts from tomorrow, so strawberry planted day 0 produces on the nights of days 9, 11, 13, 15.
 - **Evidence at 40 tiles with fertilizer:** **6/8**, mean +$1,516.9, **mirror +$4,682.4**, all DONE - a production gain, not a racing one, and the closest any change has come to the field's plan. Rejected only on the 7/8 win count. 224 units sold a game at $199-260, ~7 a tile.
-- **What still blocks it:** the herd falls 16 animals to 8, because berry seed and livestock draw on the same cash between days 6 and 13. See the two dispatcher defects below; the second is the live one.
-- **Test again only with:** the late-goose leak closed. Do not retry by varying tile counts, slot costs, planting order or sell rules - all four have now been varied across four attempts.
+- **What blocked it:** the herd fell 16 animals to 8, because berry seed and livestock draw on the same cash between days 6 and 13.
+- **Test again now - this is the standing next hypothesis.** Both stated blockers are closed as of the v9 candidate: the pipeline that capped the herd is unblocked, day-21-to-24 geese no longer eat the cash, and the wage cap frees ~$16k a game. Re-run the 40-tile berry farm on that baseline unchanged. Do **not** retry by varying tile counts, slot costs, planting order or sell rules - all four have been varied across four attempts and none of them was the problem.
 
 ### Capacity and hiring demand are different questions (`PLANT_SLOTS`)
 
@@ -121,12 +129,10 @@ This is the durable evidence ledger for the optimizer. Read it before choosing a
 - **Fix that worked:** split into `PLANT_SLOTS` (capacity, 2) and `PLANT_LOAD` (hiring, 4). Crew back to 12-14, tiles planted 24 to 32. The field settles the capacity number: the leaders keep 14 animals and 54 plants on 11 hands, which is 2 slots a plant, not 4.
 - **Note:** this is *not* the rejected "denser planning capacity" result. That one lowered `ANIMAL_SLOTS`, and animals cost $300-500 plus a `FEED_DAYS` reserve the moment they are planned. A plant costs $10-100.
 
-### One undelivered animal deadlocks the whole herd pipeline
+### A fix that unblocks a constraint has to pay for what the constraint was suppressing
 
-- **Measured:** wrapping `_scan` and classifying every turn's build decision showed the pipeline blocked on `want pending (COW)` for **288 consecutive turns, days 14 to 25**. Not cash, not slots. The farm grows one head at a time, so a single animal still in transit stops the next structure being built *and* the next beast being bought. `PLACE` sat at priority 1 while crop watering sat at 0, so the unit carrying the cow was eligible for a water job every turn and never reached the pasture.
-- **Why the obvious fix is not enough:** moving `PLACE` to -1 works - seed 2's mirror went $69,323 to $91,010 and its animal purchases 8 to 18 - but the candidate scored **4/8** and the mirror gain collapsed to +$1,124.5. With the pipeline unblocked the farm buys 17-18 animals, and `_next_animal` retires cows at day 19 and sheep at day 20 while geese run to day 24, so the freed late cash goes into **geese: 8 instead of 3**. A goose bought day 22 returns ~$350 of egg against ~$378 of feed. The deadlock was suppressing a loss-making purchase; fixing it exposed one.
-- **How to apply:** fix what the pipeline buys before unblocking it. A goose stops paying around day 20, not day 24.
-- **Best distinct next hypothesis:** Retire GOOSE in `_next_animal` once its feed bill exceeds its egg revenue - a bird bought on day `d` yields `29 - d - 4` eggs at ~$50 against `29 - d` days of wheat at the live quote, so its real deadline is ~day 20, not day 24. Then re-run the 40-tile berry farm *plus* the `PLACE` priority fix. That is the one combination not yet measured: the crop that cleared the mirror at +$4,682, the deadlock fix that doubles the herd, and a deadline that stops the freed cash buying birds that lose money.
+- **Lesson:** three times now, removing a limit has released spending the limit was quietly preventing, and the released spending cost more than the freed throughput earned. Unblocking `PLACE` doubled the herd and sent the freed cash into geese bought past their break-even (4/8 alone), and then into the exponential tail of the hire curve (still 4/8 with the geese fixed). Only when both downstream leaks were priced did it clear the gate at 8/8. See the worked entry above for the numbers.
+- **How to apply:** before removing a bottleneck, ask what the farm will buy with the capacity, and check that purchase's margin at the day it will happen. Then measure the *spend* side of the instrumented game, not only the revenue side - both losing seeds here showed revenue up $16,745 and would have looked like wins on any revenue-only reading.
 
 ### Aggressive hiring as the sole repair for crop-heavy plans
 
@@ -191,12 +197,12 @@ This is the durable evidence ledger for the optimizer. Read it before choosing a
 - **Why they failed in this pairing:** A pickup's destination is not persistent state. On the next turn the greedy dispatcher can give that loaded carrier a different target, so even a correct initial dock does not create a stable end-to-end route.
 - **Test again only with:** Nothing yet. The persistence half of this diagnosis was implemented and measured (see "Persistent per-unit job claims" below) and the re-targeting waste it assumed does not exist: 5.3% of moves reverse direction. Both dock failures are better explained by the single-dock layout being adequate than by missing route state, so do not queue another routing experiment without a measurement showing otherwise.
 
-### Static 10-hand cap under the livestock scheduler
+### Static 10-hand cap under the livestock scheduler (superseded)
 
 - **Attempt:** Reduce `MAX_HANDS` from 16 to 10 after replays measured about $6,801 in hire costs and substantial daily PASS volume.
 - **Evidence:** Won 6/8 but improved only +776.6 on average (77,214.1 versus 76,437.5), with all statuses DONE.
 - **Why it failed in this pairing:** Aggregate idle actions did not identify which individual late hires were disposable; on some seeds the hard cap removed profitable throughput along with idle labor.
-- **Test again only with:** Per-day utilization feedback, a late marginal-hire rule, or route changes that prove the smaller crew can clear the same chores. Lower labor is not universally bad; the static ceiling was the wrong control.
+- **Superseded by `HIRE_MAX_WAGE = 144`** in the worked section above. The control was wrong, not the thesis: headcount is not what makes the last hands unprofitable, the `fib` wage is. Capping the marginal *wage* prices each hand instead of banning it, and it needed the herd-pipeline fix beside it to be worth anything at all (1/8 on its own).
 
 ### Exact unfed-count pickup demand under aggregate inventory accounting
 

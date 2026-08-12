@@ -37,10 +37,16 @@ CROPS = {
     "MELON":      {"seed":  80, "first": 10, "maxday": 12, "max_yield": 6, "interval": 0, "ongoing": False},
 }
 
+# `last` is the last day it is worth *buying* one. For cow and sheep that is just
+# the deadline to reach one production (LAST_DAY - first - interval). A goose
+# clears that on day 24 and still loses money: it yields one egg a day from
+# day+4 at ~$45 while eating one wheat a day from the moment it lands, and by
+# then wheat quotes $50+, so the $300 never comes back. Its real deadline is the
+# day the feed bill overtakes the egg -- measured at ~20, not 24.
 ANIMALS = {
-    "GOOSE": {"cost": 300, "structure": "COOP",    "first": 4, "interval": 1},
-    "COW":   {"cost": 400, "structure": "PASTURE", "first": 8, "interval": 2},
-    "SHEEP": {"cost": 500, "structure": "PASTURE", "first": 6, "interval": 3},
+    "GOOSE": {"cost": 300, "structure": "COOP",    "first": 4, "interval": 1, "last": 20},
+    "COW":   {"cost": 400, "structure": "PASTURE", "first": 8, "interval": 2, "last": 19},
+    "SHEEP": {"cost": 500, "structure": "PASTURE", "first": 6, "interval": 3, "last": 20},
 }
 BUILD = {"COOP": ["BUILD_COOP"], "PASTURE": ["BUILD_PASTURE"]}
 
@@ -83,12 +89,14 @@ SLOTS_PER_UNIT = 18
 ANIMAL_SLOTS = 9
 PLANT_SLOTS = 4
 # Hands are hired per day at fib(n) = 1,1,2,3,5,8,13,21,... and are refunded
-# nightly, so the crew is an operating cost, not an investment: 12 hands is $143 a
-# day, 16 is $2583. Cap the daily wage bill as a fraction of the bank.
-HIRE_FRAC = 0.02
-# ...but never below this, or a bad week compounds: a thin bank buys a thin crew,
-# a thin crew cannot feed the herd, and the herd walks off.
-HIRE_MIN = 25
+# nightly, so the crew is an operating cost, not an investment: 12 hands is $376 a
+# day, 16 is $2583 -- hands 13-16 are 85% of that bill for 25% of the crew.
+# A hand-day is worth roughly what a hand-day is worth, all season; it does not
+# get more valuable because the bank is fuller. Tying the wage ceiling to the bank
+# (the old `max(25, money * 0.02)`) therefore bought the exponential tail of the
+# curve exactly when it had fewest days left to pay back: measured $21,101 of wages
+# on a seed where the whole herd's extra milk and wool came to $16,745.
+HIRE_MAX_WAGE = 144
 MAX_HANDS = 16
 # How many units may be sent to the shed for the same item in one turn.
 MAX_CARRIERS = 8
@@ -153,8 +161,8 @@ def _harvest_day(crop):
 def _next_animal(counts, day, structure=None, stock=None):
     """Which animal the herd is most short of, among those still worth buying.
 
-    An animal bought today must reach at least its first production, hence the
-    deadline: cows stop at day 19, sheep at 20, geese at 24.
+    An animal bought today must earn back its cost and its feed, hence the
+    per-species `last` day above.
 
     A beast already paid for and sitting in the shed overrules all of that. It
     earns nothing in there, and the reasons not to buy one -- too late, too dear
@@ -170,7 +178,7 @@ def _next_animal(counts, day, structure=None, stock=None):
     for name, a in ANIMALS.items():
         if structure is not None and a["structure"] != structure:
             continue
-        if day + a["first"] + a["interval"] > LAST_DAY:
+        if day > a["last"]:
             continue
         if day <= POOR_UNTIL_DAY and name != "GOOSE":
             continue
@@ -290,7 +298,13 @@ def _scan(tiles, day, hour, seeds, slots, money, stock):
                     counts[a] += 1
                     want[a] = want.get(a, 0) + 1
                     stock[a] = stock.get(a, 0) - 1
-                    jobs.append((1, x, y, ["PLACE", a], a))
+                    # Ahead of everything. The farm grows one head at a time, so
+                    # an animal still riding around in someone's pack stops the
+                    # next structure being built *and* the next beast bought:
+                    # measured 288 consecutive turns blocked on `want pending`,
+                    # days 14-25, because the carrier kept being handed water
+                    # jobs at priority 0 and never reached the pasture.
+                    jobs.append((-1, x, y, ["PLACE", a], a))
             elif kind == "WEED":
                 jobs.append((3, x, y, ["DIG"], None))
 
@@ -450,7 +464,7 @@ def _market(me, priv, obs, load, n_animals, want, carried, grown):
         crew_cap = -(-load // SLOTS_PER_UNIT)
         while len(orders) < 8 and n < min(MAX_HANDS, crew_cap):
             cost = _fib(n)
-            if cost > max(HIRE_MIN, money * HIRE_FRAC) or cost > upkeep:
+            if cost > HIRE_MAX_WAGE or cost > upkeep:
                 break
             orders.append(["HIRE"])
             upkeep -= cost

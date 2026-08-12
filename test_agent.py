@@ -22,9 +22,11 @@ def test_next_animal():
     # The opening takes the faster-paying bird before shifting to premium animals.
     assert _next_animal(dict(empty), 0) == "GOOSE"
     assert _next_animal(dict(empty), 5) != "GOOSE"
-    # Deadlines: a cow bought on day 21 never reaches its first production.
+    # Deadlines: a cow bought on day 21 never reaches its first production, and a
+    # goose bought after day 20 eats more wheat than it lays egg.
     assert _next_animal(dict(empty), 21, "PASTURE") is None
-    assert _next_animal(dict(empty), 24) == "GOOSE"
+    assert _next_animal(dict(empty), 20, "COOP") == "GOOSE"
+    assert _next_animal(dict(empty), 21, "COOP") is None
     # A pasture never gets a goose, whatever the herd is short of.
     assert _next_animal({"GOOSE": 0, "COW": 9, "SHEEP": 0}, 5, "PASTURE") == "SHEEP"
     # A beast already bought outranks every rule above -- it earns nothing in the
