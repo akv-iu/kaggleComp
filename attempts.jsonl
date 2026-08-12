@@ -37,3 +37,6 @@
 {"title": "Strawberry at field scale (rejected, fourth strawberry refusal - but the diagnosis changed)", "verdict": "rejected", "wins": null, "mean": "+$1,516.0"}
 {"title": "Unblock the herd pipeline and stop the wage curve eating it (selected as v9 candidate)", "verdict": "selected", "wins": null, "mean": "+$6,029"}
 {"title": "Strawberry at field scale, fifth attempt: the crop works once the carriers stop being stolen (selected as v10 candidate)", "verdict": "selected", "wins": null, "mean": "+$5,336.75"}
+{"title": "Wheat as a late cash crop, 60 tiles from day 16 (rejected)", "verdict": "rejected", "wins": "2/16", "mean": "-$5,846.8"}
+{"title": "Value-ordered watering: wheat water demoted to priority 1 (rejected)", "verdict": "rejected", "wins": "2/8", "mean": "-$1,237.0"}
+{"title": "Late wheat plus value-ordered watering (rejected)", "verdict": "rejected", "wins": "3/8", "mean": "-$1,991.2"}
