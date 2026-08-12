@@ -5,7 +5,8 @@ Run: .venv/Scripts/python.exe test_agent.py
 
 from kaggle_environments import make
 
-from main import ANIMALS, _harvest_day, _next_animal, _scan, _wheat_target, agent
+from main import (ANIMALS, HERD_RUSH_DAY, _harvest_day, _next_animal, _scan,
+                  _wheat_target, agent)
 
 
 def test_harvest_day():
@@ -19,8 +20,9 @@ def test_harvest_day():
 
 def test_next_animal():
     empty = {a: 0 for a in ANIMALS}
-    # The opening takes the faster-paying bird before shifting to premium animals.
-    assert _next_animal(dict(empty), 0) == "GOOSE"
+    # The opening buys premium animals from day 0: the rush fills the whole herd
+    # there, and gating that day to geese spends it on the dump product.
+    assert _next_animal(dict(empty), 0) == "COW"
     assert _next_animal(dict(empty), 5) != "GOOSE"
     # Deadlines: a cow bought on day 21 never reaches its first production, and a
     # goose bought after day 20 eats more wheat than it lays egg.
@@ -40,15 +42,26 @@ def test_scan_last_hour_and_build():
     # Hour 23 has no following turn in which to water, so nothing is planted.
     jobs, _, _ = _scan(tiles, 0, 23, {"MELON": 1}, 99, 3000, {})
     assert not any(job[3][0] == "PLANT" for job in jobs), jobs
-    # With no slots left the crew builds nothing either.
-    assert not _scan(tiles, 0, 0, {}, 0, 3000, {})[0]
-    # Only one new structure enters the pipeline, and it is the tile nearest the
-    # shed rather than the row-major corner.
+    # Inside the rush window `slots` does not hold the herd back -- the empty
+    # structure is what creates the hiring load that pays for the crew.
+    assert _scan(tiles, 0, 0, {}, 0, 3000, {})[0]
+    # Past it, no slots means no new structure.
+    assert not _scan(tiles, HERD_RUSH_DAY + 1, 0, {}, 0, 3000, {})[0]
+    # The rush grows the herd in parallel; afterwards it is one head at a time,
+    # on the tile nearest the shed rather than the row-major corner.
     tiles[4][4] = None
-    jobs, want, _ = _scan(tiles, 0, 0, {}, 99, 9999, {})
+    builds = [j for j in _scan(tiles, 0, 0, {}, 99, 9999, {})[0]
+              if j[3][0].startswith("BUILD_")]
+    assert len(builds) == 2, builds
+    jobs, want, _ = _scan(tiles, HERD_RUSH_DAY + 1, 0, {}, 99, 9999, {})
     builds = [job for job in jobs if job[3][0].startswith("BUILD_")]
     assert len(builds) == 1 and builds[0][1:3] == (4, 4), builds
     assert sum(want.values()) == 1, want
+    # A structure is free, so a beast already paid for and standing in the shed
+    # is never held up by an empty bank. Without this the farm can deadlock with
+    # its whole herd crated and no cash to authorise the $0 pasture.
+    assert [j[3] for j in _scan(tiles, 20, 0, {}, 99, 0, {"COW": 1})[0]
+            if j[3][0].startswith("BUILD_")] == [["BUILD_PASTURE"]]
     # An empty pasture asks the market for the animal that fits it.
     tiles[4][4] = "LOCKED"
     tiles[0][0] = {"kind": "PASTURE"}

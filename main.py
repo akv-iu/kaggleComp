@@ -60,14 +60,31 @@ SHED_CAP = 100
 # the shop unlock order: YARN_STORE may not exist until day 24, and 8 sheep with
 # no yarn store is 250 wool into a market that absorbs 140.
 HERD = {"GOOSE": 0.10, "COW": 0.50, "SHEEP": 0.40}
-# Day 0 only takes the bird that pays fastest. It is tempting to extend this --
-# a goose pays on day 4, a cow not until day 8, and the opening is short of cash
-# rather than short of patience -- but measured, every extra day of it costs:
-# holding it to day 5 drops the score by two thirds. Cheap animals bought early
-# are still cheap animals, and a farm that leans on geese sells nothing but eggs
-# and fertilizer, which is exactly how the egg price ends at $39 and fertilizer
-# at $30. Milk and wool ride their own curves; that is the point of three species.
-POOR_UNTIL_DAY = 0
+# The opening rush. Measured on the baseline: the herd sits at 3-4 head from day 2
+# to day 11 while every farm above $120k runs 12 by day 8. Two separate throttles
+# hold it there and neither moves without the other. Days 0-1 it is the
+# one-head-at-a-time pipeline plus `slots` (cash is fine -- $1,584 unspent at
+# nightfall on day 0). Days 2-10 it is purely cash: `budget` is *negative* every
+# one of those days, because ten days of feed money for four animals is $1,280
+# against a bank of $1,300.
+# Inside the window the herd may grow in parallel and ignore `slots`, because an
+# empty structure already counts in `load` and the crew catches up next turn.
+HERD_RUSH_DAY = 8
+# ... but not without a ceiling. Unbounded, the rush paves all 25 opening tiles
+# with pasture, never reaches the $1,000 land purchase, and the berry farm falls
+# to 8 tiles: milk and wool +$16,492, strawberry -$27,914. Eight is where the two
+# stop fighting -- screened at 6/8/10/12, mirror +6,245/+12,910/+9,843/lower, and
+# only 8 keeps full berry revenue while milk rises.
+HERD_RUSH_SIZE = 8
+# Days up to here take only the bird that pays fastest. Off (-1), and it has to
+# be off for the rush. The rule was written for a pipeline that bought one head
+# every two days, where the first head should obviously be the one that pays on
+# day 4; the rush buys the whole opening herd on day 0, and gating that day to
+# geese fills eight of sixteen slots with them -- $16,896 of egg, the dump
+# product, in place of milk and wool (milk 23,835 against 36,956 with this off).
+# The old warning stands for what it was about: *delaying* cow and sheep past
+# day 0 cost two thirds of the score. Buying them on day 0 is the opposite.
+POOR_UNTIL_DAY = -1
 
 # Melon funds the opening: $80 of seed becomes ~$1500 on day 10. Eight tiles at a
 # time, no more -- twelve measured a third worse, because early melon competes for
@@ -152,6 +169,12 @@ FEED_BUFFER = 4
 # the $25 it did on day 0. A flat reserve looks fine right up to the day the whole
 # herd walks off at once.
 FEED_DAYS = 10
+# Inside the rush the reserve is cut to three days. It insures against a cash
+# drought that cannot happen there: a head bought before day 8 drops a fertilizer
+# every night worth $90-100 while the market is still near its $100 base, against
+# ~$30 of wheat, so it repays its own feed from day one and its purchase price
+# inside a week. Ten days of it is the throttle, not the insurance.
+FEED_DAYS_EARLY = 3
 
 
 def _fib(n):
@@ -367,16 +390,27 @@ def _scan(tiles, day, hour, seeds, slots, money, stock):
             grown["MELON"] = grown.get("MELON", 0) + 1
             jobs.append((2, x, y, ["PLANT", "MELON"], None))
             continue
-        # Grow one head at a time. An empty structure is already the next animal
-        # in the pipeline; building dozens more only creates walking jobs and a
-        # misleading hiring load.
-        if not want and slots >= ANIMAL_SLOTS:
-            a = _next_animal(counts, day)
-            if a is not None and budget >= ANIMALS[a]["cost"]:
-                budget -= ANIMALS[a]["cost"]
+        # The opening herd in a rush, then one head at a time. After the window
+        # an empty structure is already the next animal in the pipeline, and
+        # building dozens more only creates walking jobs and a misleading hiring
+        # load -- but inside it, that caution is what leaves the farm on four
+        # head at day 11 against a field that runs twelve from day 8.
+        rush = day <= HERD_RUSH_DAY and sum(counts.values()) < HERD_RUSH_SIZE
+        if rush or (not want and slots >= ANIMAL_SLOTS):
+            # `stock` first: a structure is free, so an animal already paid for
+            # and standing in the shed must never wait on the bank. Without this
+            # the farm can deadlock outright -- six geese in the crate and a
+            # budget too thin to authorise the $0 coop that would let them out.
+            a = _next_animal(counts, day, stock=stock)
+            if a is not None and (stock.get(a, 0) > 0
+                                  or budget >= ANIMALS[a]["cost"]):
+                if stock.get(a, 0) > 0:
+                    stock[a] -= 1
+                else:
+                    budget -= ANIMALS[a]["cost"]
                 slots -= ANIMAL_SLOTS
                 counts[a] += 1
-                want[a] = 1
+                want[a] = want.get(a, 0) + 1
                 jobs.append((2, x, y, BUILD[ANIMALS[a]["structure"]], None))
                 continue
         # Berries, once melon and the herd pipeline have had their pick of the
@@ -497,7 +531,8 @@ def _market(me, priv, obs, load, n_animals, want, carried, grown):
     # bird walks off for good. Spending down to the last dollar on livestock and
     # then having nothing left to feed it is the one way to lose this game
     # outright, so the herd's next few days of wheat are not part of the budget.
-    keep = max(1, prices.get("WHEAT", 25)) * FEED_DAYS
+    keep = max(1, prices.get("WHEAT", 25)) * (
+        FEED_DAYS_EARLY if day <= HERD_RUSH_DAY else FEED_DAYS)
     budget = money - CASH_FLOOR - n_animals * keep
     # Crew and feed are what the reserve is *for*, so they spend against the whole
     # bank. Gating them on the reserve deadlocks the farm: a herd it cannot afford
