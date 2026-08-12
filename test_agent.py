@@ -71,6 +71,28 @@ def test_scan_last_hour_and_build():
     assert _scan(tiles, 1, 0, {}, 99, 9999, {})[0][0][3] == ["WATER"]
 
 
+def test_strawberry():
+    tiles = [["LOCKED"] * 10 for _ in range(10)]
+    tiles[0][0] = {"kind": "PLANT", "crop": "STRAWBERRY", "planted_day": 0,
+                   "watered_today": True, "consecutive_unwatered": 0,
+                   "yield_units": 0, "fertilized_until_day": -1}
+
+    def ops(day):
+        return {job[3][0] for job in _scan(tiles, day, 0, {}, 99, 9999, {})[0]}
+
+    # The nightly refresh counts from tomorrow, so a berry planted on day 0
+    # produces on the nights of days 9, 11, 13, 15 -- fertilize on those, and
+    # never after the fourth production, when the tile is already marked to die.
+    assert "FERTILIZE" in ops(9), ops(9)
+    assert "FERTILIZE" not in ops(10), ops(10)
+    assert "FERTILIZE" not in ops(17), ops(17)
+    # Berries wait for the melon opening to pay for them.
+    tiles[0][0] = None
+    assert not _scan(tiles, 5, 0, {"STRAWBERRY": 1}, 99, 0, {})[0]
+    jobs = _scan(tiles, 6, 0, {"STRAWBERRY": 1}, 99, 0, {})[0]
+    assert [job[3] for job in jobs] == [["PLANT", "STRAWBERRY"]], jobs
+
+
 def test_episode():
     env = make("kaggriculture", configuration={"seed": 1}, debug=True)
     env.run([agent, "starter"])
@@ -88,5 +110,6 @@ if __name__ == "__main__":
     test_harvest_day()
     test_next_animal()
     test_scan_last_hour_and_build()
+    test_strawberry()
     print("unit checks ok")
     print("episode: me=%.0f starter=%.0f" % test_episode())
