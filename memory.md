@@ -60,13 +60,20 @@ This is the durable evidence ledger for the optimizer. Read it before choosing a
 - **How to apply:** Before trusting a local win, ask whether the gain comes from *producing or saving more* or merely from *getting there first*. More seeds do not fix this - it is a bias in the benchmark's design, not its sample size.
 - **Reconsider if:** A racing change ever clears the mirror gate; then raise the threshold.
 
+### Submitting retires an older agent, so do not submit faster than ratings settle
+
+- **Lesson:** Only the two most recent submissions keep playing episodes; Kaggle retires the rest, and the competition page shows only the live ones. A retired agent's rating freezes wherever it happened to be. The binding constraint on submitting is therefore **not** the five-a-day budget - it is that a new submission replaces an agent that may not have finished converging, so you never learn whether it was good.
+- **Evidence (2026-08-12 00:45 UTC):** eight submissions exist in the API; only v8 (31 episodes, last 00:15) and v7 (30, last 23:15) were still playing. v6's final episode was 17:33, two minutes before v8 was submitted at 17:35. Everything from v5 back had stopped hours to days earlier.
+- **Not established:** the exact retirement rule. v5 kept playing long after v6 landed, so it is not a strict "newest two". Do not assume a rule; check `kaggle competitions episodes <id>` for the most recent episode timestamp.
+- **How to apply:** Before spending a submission, check that the current agent has stopped moving (roughly 30+ episodes and a stable score). Shipping a marginal candidate costs the evidence for the one already in flight.
+
 ### Never read a public rating before it has converged
 
 - **Lesson:** A fresh submission's rating swings wildly for its first dozen episodes and means nothing. Wait for roughly 25-30 episodes (`kaggle competitions episodes <id>`) before treating a rating as evidence.
-- **Evidence:** v8 read **777.0 at 7 episodes** and **653.7 at 28**. A whole conclusion was drawn and written into this ledger off the 7-episode number, and it was wrong.
-- **What the converged numbers actually say:** v6 665.4 (42 games), v7 661.6 (29), v8 653.7 (28). Three versions, twelve points apart, i.e. indistinguishable. The local benchmark has meanwhile reported +$1,504 and +$3,567 for those same two steps, and the mirror reported +84 and +3,903.
-- **The uncomfortable implication:** local gains are not translating into public rating at all, and the mirror check - though sound in principle - has not yet been confirmed by a public result. Our local ladder measures play against ourselves; the field contains farms scoring twice our best. This is the strongest argument for chasing the field ceiling rather than another local delta.
-- **How to apply:** Record the episode count beside every rating in these ledgers. A rating without its episode count is not evidence.
+- **Evidence:** v8 has read **777.0 at 7 episodes**, **653.7 at 28**, and **682.8 at 31**. A conclusion was drawn and written into this ledger off the 7-episode number, then corrected off the 28-episode number, and both were premature: the score swung 124 points and was still moving at 31 games.
+- **Standings at 2026-08-12 00:45 UTC:** v8 682.8 (31 games, live), v6 665.4 (42, retired), v7 651.6 (30, live), v5 602.7 (38, retired). v8 is probably the best agent shipped so far, but "probably" is the honest word until it stops moving.
+- **The uncomfortable implication:** the local benchmark reported +$1,504 for v7 and +$3,567 for v8; the mirror reported +84 and +3,903. The mirror's *ordering* has held up - v7 flat-to-down, v8 up - but the magnitudes do not map onto rating at all, and the field still contains farms scoring twice our best. Chasing the field ceiling remains worth more than another local delta.
+- **How to apply:** Record the episode count beside every rating in these ledgers, and say "still moving" rather than picking a number. A rating without its episode count is not evidence. See also the entry above on retirement: a rating stops converging the moment its agent is retired.
 
 ### Read the environment source, not the agent's own comments
 
