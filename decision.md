@@ -426,3 +426,146 @@ Append one entry for every evaluated attempt, including rejected attempts. Never
 - **And the obvious fix is worse, which is the useful half of the result:** protecting the berries by demoting wheat's water job (candidate 2) loses on its own, mirror -$3,518.5, because half-watered wheat dies into weeds and the feed bill comes back as `BUY_PRODUCT`. Wheat tiles are not stealing labour that berries would otherwise get; both crops are already priced correctly against each other at `WHEAT_PER_ANIMAL = 0.75` and `BERRY_TILES = 40`. The allocation is at a local optimum in both directions.
 - **Verdict:** Rejected, and not submitted. v11 stays live. Spending a submission here would retire a converging 806.8 agent for a measurably worse one.
 - **Test again only with:** a source of actions that is not taken from the herd or the berries - a measurably idle late crew, or a compaction of the 63% of all actions currently spent walking (~4,400 moves of ~7,000 actions a game). The shed was measured across a full v11 game and is **not** the constraint: it peaks at 77 of 100 on day 21, crosses `SHED_PRESSURE` twice, never overflows, and strands only 12 strawberry and 22 wheat at the last bell.
+
+## Carrier-count wheat fetch demand (rejected)
+
+**State:** v11 (submission 55468214, public 808.5 and rising from v10's 751.1).
+`_fetch_jobs` sized every shed run against *aggregate carried units*, and the
+caller asked for `n_animals` wheat all day long.
+
+**Change:** two lines. `carried = sum(1 for inv in invs if inv.get(item, 0) > 0)`
+(loaded carriers, not units of stock), and `fetch["WHEAT"] = sum(1 for j in jobs
+if j[3][0] == "FEED")` (animals still waiting on supper, not head on the farm).
+
+**Pre-test reasoning.** Instrumented mirror game, seed 0: the farm hauls **496
+wheat units out of the shed to deliver 258 feeds**, with 9-21 units still riding
+at dusk every night and dropped straight back in. The standing demand never fell
+as animals were fed, so every wheat spent reopened a one-unit shortfall and the
+shed run ran all day, including the last day when no FEED job exists. Feed
+logistics cost 2,014 actions - 893 walking to FEED, 391 walking to PICKUP, 472
+PICKUP, 258 FEED - which is **28% of the whole game** for 258 deliveries. Meanwhile
+PASS is **zero on every day from 11 to 25**, so the farm is action-saturated and
+the freed actions had somewhere to go: 14 of 40 strawberry tiles die of thirst
+(`consecutive_unwatered >= 2`) before their fourth production.
+This is explicitly the pairing memory named as missing for the two earlier
+failures: the FEED-job demand alone (2/8) lacked carrier accounting, and the
+`n_animals` demand lacked a decay.
+
+**Evidence.** The mechanism worked: picked 496 -> 427, fetch jobs 1,007 -> 698,
+FEED **258 -> 274**, HARVEST 242 -> 255, strawberry sold 185 -> 219, milk 166 -> 183.
+Head-to-head **6/8, +$5,650.1**, all DONE. **Mirror -$1,574.6** (113,203 against
+114,778). Fails both gates.
+
+**Verdict: rejected.** Reverted to the exact pre-run snapshot.
+
+**What it teaches.** The freed actions did not become waterings. Measured on the
+same seed: PICKUP 472 -> 377 but total movement rose 4,302 -> 4,548, PASS rose
+680 -> 727 and WATER *fell* 504 -> 478. And the fix has a market cost that only a
+mirror can see: a farm whose carriers are not already loaded buys the difference,
+so `BUY_PRODUCT WHEAT` went 201 -> 243 units. Wheat rises on a sqrt curve below
+I0 and five shops drain it, so buying more feed bids the price up on both farms.
+In the head-to-head we win that race against a slower copy; in the mirror both
+farms bid and both pay. That is the v7 fertilizer pattern in a different good,
+and it is why the head-to-head read +$5,650 on a change worth -$1,575.
+
+**Try again only with:** a measured productive job the freed carrier reaches in
+the same turn *and* no increase in `BUY_PRODUCT WHEAT`. Do not retry by tuning
+the demand formula; three variants of it have now failed (aggregate units with
+`n_animals`, aggregate units with FEED-job count, carrier count with FEED-job
+count).
+
+## 2026-08-13 - Match the closest (unit, job) pair inside a priority band (selected as v12 candidate)
+
+**State:** v11 (submission 55468214, public **779.0**, up from v10's 737.3 - the
+largest rating gain of the project). Field record 84-83 across 167 indexed games;
+v11 alone is 24/47 with a mean of $77,487 against the field's $73,052, but our own
+scores span 40,160 to 130,472 and four opponents still finish above $130k.
+
+**Where the hypothesis came from.** Episode 92507094 (seed 1575606840, seat 1):
+v11 $80,137 against 风沙星辰's $152,768 - the worst loss the current agent has on
+record. Reconstructing both farms:
+
+| | them | us |
+|---|---|---|
+| productive actions | 3,468 | 2,309 |
+| movement | 2,855 | 4,354 |
+| PASS | 324 | 706 |
+| moves per productive action | **0.82** | **1.86** |
+| WATER | 1,010 | 510 |
+| CARE | 967 | 243 |
+| HARVEST | 390 | 243 |
+| productive tiles at day 20 | 73 | 46 |
+| mean tiles from a shed dock | 4.01 | **3.15** |
+| strawberry sold | 300 | 183 |
+| hires | 264 | 289 |
+
+We have the *larger* crew (7,291 unit-turns against 6,647) and the *more compact*
+farm, and we still walk 1.5k further and do 1.2k less work. So the walking is not
+the layout's and not the crew's - it is the dispatcher's.
+
+**What that costs, measured on a v11 mirror, seed 0:** 27 of 40 strawberry tiles
+die of thirst (6 at age 1, 10 on their first production night, `consecutive_unwatered
+>= 2`); berry production nights land at **101 of a possible 160**; `DIG` is offered
+2,414 times and performed 48, so every dead tile stays a weed and `empty` - which
+only collects `None` - never offers it back. The farm shrinks itself.
+
+**Change (one pass in `_assign`, ~25 lines).** Pass 2 walked `jobs` in sorted
+order and gave each job its nearest able unit. A tile on the far edge, offered
+first by scan order, therefore claimed the nearest body and pushed the unit
+already standing beside the next job across the map. Replaced with: inside one
+priority band, repeatedly take the globally closest (unit, job) pair. Priority
+order is untouched - a band is only entered once the band above it has taken
+every unit it can use - and nothing else in the file changed.
+
+**Pre-test reasoning.** This is not "act sooner on a shared pool", so it should
+survive a mirror: it produces more from the same crew rather than reaching the
+same market first. The four rejected logistics experiments all tried to *free*
+actions and found the freed actions became PASS; this one does not free actions,
+it shortens the ones already being taken.
+
+**Evidence.** Head-to-head against the exact pre-run baseline, 4 seeds x 2 seats:
+**8/8, mean $126,507.5 against $109,116.3 (+$17,391.2)**, every status DONE, worst
+pairing +$10,782. **Mirror +$5,533.1** (120,311 against 114,778). Re-run at 8 seeds: **16/16, +$14,980.2, mirror +$8,917.6**, mirror mean 119,522, worst pairing +$5,937 - no losing pairing at either sample size. `py_compile` and
+`test_agent.py` pass; the standalone episode scores **$175,559**, against a field
+best of $175,862.
+
+Mechanism on the same instrumented seed-0 mirror, v11 -> candidate:
+- berry production nights **101 -> 160 of 160**, all watered, 0 thirst deaths
+- `DIG` offers 2,414 -> 707 (nothing dying means nothing to reclaim)
+- movement 4,302 -> 3,871, productive actions 2,309 -> 2,525, WATER 504 -> 640,
+  HARVEST 242 -> 315, PASS 680 -> 935
+- mirror score 112,234 -> 126,502
+
+PASS *rising* while score rises is the point: the farm now finishes its work.
+
+**Verdict: selected.** Both gates clear.
+
+**Reconsider if:** a future change makes the job list much longer - the pass is
+O(band x idle) per assignment and the bands are ~30 jobs against ~14 units today.
+Also: greedy pair matching is not optimal matching. A constructed 2x2 case exists
+where it is worse than the old rule (units (7,4),(8,3); jobs (3,7),(8,8): 14 steps
+against 12), because ties resolve to the lowest unit index. Hungarian assignment
+is the upgrade path if this ever binds again.
+
+### Screened and pruned before benchmark (mirror mean over seeds 0-2, baseline 114,172)
+
+- **Water every ongoing crop tile every day** (add `c["ongoing"]` to the water
+  condition). Halved thirst deaths 27 -> 14 and still scored **105,646 (-8,526)**:
+  berry production nights fell 101 -> 96 and HARVEST 242 -> 228. The extra ~130
+  waterings came out of harvesting. Watering more is not how you stop the deaths.
+- **`BERRY_TILES` 40 -> 26** (109,550) and **40 -> 32** (109,663). Both worse.
+  40 is correct and is now screened rather than inherited; a tile that dies stops
+  consuming water, so trimming the field does not buy back the labour.
+- **`BERRY_FIRST_DAY` 6 -> 4** (113,162, -1,010), copied from the leader in
+  92507094 who plants berries from day 4. Near-neutral, won seed 2, lost seed 0.
+- **`HERD_RUSH_DAY`/`HERD_RUSH_SIZE` 8/8 -> 12/12** (107,675, -6,497). The leader
+  reaches 12 head by day 9 and never grows again; we cannot buy that herd with our
+  opening cash without starving the berries.
+- **`HIRE_MAX_WAGE` 144 -> 233 (113,472) and -> 377 (108,206).** Memory named this
+  as the thing to re-screen once the crop area grew, because the ceiling was fitted
+  at v9 before the 40-tile berry farm existed. It travelled: 144 is still right.
+- **`DIG` promoted from priority 3 to 2 before day 20** (113,592, -580). Reclaiming
+  the weeds does not pay while watering is the constraint - the reclaimed tile needs
+  a seed, a planting and a watering the crew has not got. The dispatcher fix removed
+  the deaths instead, which is why `DIG` offers fell 2,414 -> 707 without touching
+  its priority.

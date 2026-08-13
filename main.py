@@ -490,19 +490,38 @@ def _assign(units, jobs, tiles, invs):
                 idle.discard(i)
                 break
 
-    for j in jobs:
-        if not idle:
-            break
-        if id(j) in done:
-            continue
-        _prio, jx, jy, op, need = j
-        able = [i for i in idle if _can(i, need)]
-        if not able:
-            continue
-        best = min(able, key=lambda i: abs(units[i][0] - jx) + abs(units[i][1] - jy))
-        ux, uy = units[best]
-        acts[best] = op if (ux, uy) == (jx, jy) else _step_toward(ux, uy, jx, jy)
-        idle.discard(best)
+    # Pass 2: inside one priority band, take the globally closest (unit, job)
+    # pairs first. Walking the band in scan order lets a tile on the far edge
+    # claim the nearest body and shove the unit already standing beside the next
+    # job across the map. Measured against the field leader in episode 92507094:
+    # 1.86 moves per productive action here against 0.82 there, on a farm that is
+    # *more* compact than theirs (mean 3.15 tiles from a dock against 4.01), so
+    # the walking is the dispatcher's, not the layout's. Priority order is
+    # untouched: a band is only entered once the band above it has taken every
+    # unit it can use.
+    lo = 0
+    while lo < len(jobs) and idle:
+        hi = lo
+        while hi < len(jobs) and jobs[hi][0] == jobs[lo][0]:
+            hi += 1
+        band = [j for j in jobs[lo:hi] if id(j) not in done]
+        lo = hi
+        while idle and band:
+            pick = None
+            for j in band:
+                for i in idle:
+                    if not _can(i, j[4]):
+                        continue
+                    d = abs(units[i][0] - j[1]) + abs(units[i][1] - j[2])
+                    if pick is None or d < pick[0]:
+                        pick = (d, j, i)
+            if pick is None:
+                break
+            _d, j, i = pick
+            ux, uy = units[i]
+            acts[i] = j[3] if (ux, uy) == (j[1], j[2]) else _step_toward(ux, uy, j[1], j[2])
+            idle.discard(i)
+            band.remove(j)
 
     # Nothing to do but holding produce: run it to the shed so it can be sold today
     # instead of waiting for the end-of-day drop (which discards past the cap).

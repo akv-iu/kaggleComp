@@ -5,8 +5,8 @@ Run: .venv/Scripts/python.exe test_agent.py
 
 from kaggle_environments import make
 
-from main import (ANIMALS, HERD_RUSH_DAY, _harvest_day, _next_animal, _scan,
-                  _wheat_target, agent)
+from main import (ANIMALS, HERD_RUSH_DAY, _assign, _harvest_day, _next_animal,
+                  _scan, _wheat_target, agent)
 
 
 def test_harvest_day():
@@ -84,6 +84,22 @@ def test_scan_last_hour_and_build():
     assert _scan(tiles, 1, 0, {}, 99, 9999, {})[0][0][3] == ["WATER"]
 
 
+def test_assign_takes_the_closest_pair_in_a_band():
+    # Two jobs of equal priority and two units. Scan order offers the far job
+    # first; it must not claim the unit standing next to the near one.
+    tiles = [[None] * 10 for _ in range(10)]
+    # Offering (9,2) first makes it claim the unit at (3,4) -- 8 steps -- and
+    # leaves the unit at (5,7) a 9-step walk to (3,0). Pairing by distance costs
+    # 13 steps instead of 17.
+    units = [[3, 4], [5, 7]]
+    jobs = [(0, 9, 2, ["WATER"], None), (0, 3, 0, ["WATER"], None)]
+    acts = _assign(units, jobs, tiles, [{}, {}])
+    assert acts == [["NORTH"], ["EAST"]], acts
+    # Priority still wins over distance: the far high-priority job goes first.
+    jobs = [(-1, 9, 8, ["WATER"], None), (0, 1, 0, ["WATER"], None)]
+    assert _assign([[0, 0]], jobs, tiles, [{}])[0] == ["EAST"]
+
+
 def test_strawberry():
     tiles = [["LOCKED"] * 10 for _ in range(10)]
     tiles[0][0] = {"kind": "PLANT", "crop": "STRAWBERRY", "planted_day": 0,
@@ -124,5 +140,6 @@ if __name__ == "__main__":
     test_next_animal()
     test_scan_last_hour_and_build()
     test_strawberry()
+    test_assign_takes_the_closest_pair_in_a_band()
     print("unit checks ok")
     print("episode: me=%.0f starter=%.0f" % test_episode())
