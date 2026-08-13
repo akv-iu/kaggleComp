@@ -569,3 +569,13 @@ is the upgrade path if this ever binds again.
   a seed, a planting and a watering the crew has not got. The dispatcher fix removed
   the deaths instead, which is why `DIG` offers fell 2,414 -> 707 without touching
   its priority.
+
+## 2026-08-13 - Land bought while our own land is bare (quadrant cap, then the utilisation gate)
+
+- **State:** v12 (pair matching) is live and is the baseline for everything below. The hypothesis came from episode 92507094, the worst v11 loss on record ($80,137 against 风沙星辰's $152,768), where the winner ran **three quadrants to our four** and spent 2,855 actions moving against our 4,354.
+- **Decision 1 - the blunt cap.** `MAX_QUADRANTS = 2` (three quadrants total), nothing else touched.
+- **Evidence:** against **v11**, 6/8 at 4 seeds (+$2,428.2, mirror **-$622.6**), then 10/16 at 8 seeds (+$1,619.8, mirror **+$1,946.9**) - the 4-seed mirror was noise. Rebuilt on top of **v12** and re-measured: **10/16, +$2,113.2, mirror +$1,659.5**, every status DONE, mirror mean $121,181 against $119,522.
+- **Verdict:** rejected, but not for the usual reason. It **passes the mirror gate** and fails the win ratio, with worst pairings of -$8,982 and -$6,732. The production gain is real and it is *independent of v12* - the two do not overlap, so the walking cost of the fourth quadrant was never just the dispatcher.
+- **What the measurement then showed, and it reshapes the question.** Instrumenting the moment of purchase on v12: the **third** quadrant is bought on day 11 with **24 tiles of our own already bare**, and the **fourth** on day 12 with **23-27** bare. We spend $6,000 on room while a whole quadrant of ours sits empty, and every one of those tiles is distance the crew then walks. The cap was a proxy for a question nobody was asking.
+- **Decision 2 - the utilisation gate, queued/measuring:** buy the next quadrant only while `empty_owned < LAND_EMPTY_MAX` (8). This keeps the shed dock for a farm that genuinely needs room - the failure mode that sank the 2026-08-11 "delay the fourth quadrant to day 15" attempt (0/8, -$2,123) - while refusing land we cannot fill.
+- **Test again only with:** if the utilisation gate also misses the ratio, the next distinct question is what the *dock* is worth on its own, since that is the only thing the fourth quadrant buys that acreage does not.
