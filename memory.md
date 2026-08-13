@@ -61,6 +61,17 @@ This is the durable evidence ledger for the optimizer. Read it before choosing a
 - **How to apply:** Before trusting a local win, ask whether the gain comes from *producing or saving more* or merely from *getting there first*. More seeds do not fix this - it is a bias in the benchmark's design, not its sample size.
 - **Reconsider if:** A racing change ever clears the mirror gate; then raise the threshold.
 
+### The mirror has a second blind spot: mutual restraint
+
+- **Lesson:** the mirror was built to catch *racing* - a change that only beats a slower copy of itself - and it does. But it plays **two copies of the candidate**, so a change that **reduces supply** reduces it on both sides of a shared market, prices rise for both farms, and the change credits itself with revenue that exists only because the opponent restrained too. Against a field that keeps flooding the market, those prices never appear.
+- **Evidence (2026-08-13):** the land utilisation gate (`empty_owned < 8` before buying a quadrant) scored **8/16 wins, mean +$70.2, mirror +$3,118.4** - a coin flip against a real opponent while clearing the mirror threshold six times over. Its mirror mean, $122,640, is the highest number this project has ever measured, and it is an artefact.
+- **How to apply - the direction of the disagreement names the artefact:**
+  - head-to-head **up**, mirror **flat** -> racing. v7: +$1,504 and +$84, shipped, **-36 rating**.
+  - head-to-head **flat**, mirror **up** -> mutual restraint. This entry.
+  - both up -> evidence. v9 +$10,041/+$11,235, v10 +$9,648/+$9,671, v11 +$18,552/+$18,468, v12 +$17,391/+$5,533 - every shipped winner agrees on both.
+- **Required pairing:** read them as a pair, always. A candidate that clears one gate and not the other has told you *which* artefact it is, which is worth more than the number.
+- **Reconsider if:** never. Both blind spots follow from the mirror being two copies of one agent; neither is fixable by more seeds.
+
 ### Submitting retires an older agent, so do not submit faster than ratings settle
 
 - **Lesson:** Only the two most recent submissions keep playing episodes; Kaggle retires the rest, and the competition page shows only the live ones. A retired agent's rating freezes wherever it happened to be. The binding constraint on submitting is therefore **not** the five-a-day budget - it is that a new submission replaces an agent that may not have finished converging, so you never learn whether it was good.
