@@ -130,7 +130,18 @@ PLANT_LOAD = 4
 # (the old `max(25, money * 0.02)`) therefore bought the exponential tail of the
 # curve exactly when it had fewest days left to pay back: measured $21,101 of wages
 # on a seed where the whole herd's extra milk and wool came to $16,745.
-HIRE_MAX_WAGE = 144
+# Re-screened on v12. The pair matching cut movement 4,399 -> 3,885 on seed 6 but
+# turned the saving into idleness, not work: PASS 621 -> 1,013 while productive
+# actions rose only 2,293 -> 2,411. A farm with a thousand idle unit-turns is
+# paying the exponential tail of the hire curve for hands that stand still, and
+# it cuts a cost rather than supply - verified rather than assumed, since fewer
+# hands could also mean fewer goods: on seed 6 revenue moves $140,463 -> $139,826
+# (-0.5%) while hire orders fall 290 -> 275, so the mirror's +$1,406.7 is wages
+# saved and not the mutual-restraint artefact that inflated the land gate.
+# The effect is ~1.2% of a game against +-$4,000 of seed variance, which is why
+# it reads 9/16 head-to-head: small and real, not large and lucky. The 144 came
+# from a three-point screen on v9, before berries and before pair matching.
+HIRE_MAX_WAGE = 89
 MAX_HANDS = 16
 # How many units may be sent to the shed for the same item in one turn.
 MAX_CARRIERS = 8
