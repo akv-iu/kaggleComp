@@ -93,7 +93,14 @@ anything on disk — losing it costs a ~1.3GB re-download.
 2. **Ratings converge slower than the loop runs.** A run is 4 hours; a rating
    needs ~25-30 episodes to settle, and submitting retires an older agent. The
    binding constraint on shipping is convergence, not the 5-a-day budget.
-3. **A rejected run still costs a cycle.** Three failed experiments per
+3. **Kaggle auth is a silent single point of failure.** Every run opens with
+   `kaggle competitions submissions`; if the CLI's OAuth session has lapsed the
+   run throws on that first call and the whole four-hour cycle is lost with
+   nothing but an `ERROR:` line in `.automation/automation.log`. This happened at
+   2026-08-12 20:00. The OAuth access token in `~/.kaggle/credentials.json`
+   expires ~18h after each refresh; a static token in `~/.kaggle/access_token`
+   (or `KAGGLE_API_TOKEN`) does not expire and is what an unattended loop wants.
+4. **A rejected run still costs a cycle.** Three failed experiments per
    invocation is the cap; after that the loop waits for new replay evidence.
-4. **Single-seed differences are noise.** Both farms trade into one market, so
+5. **Single-seed differences are noise.** Both farms trade into one market, so
    any perturbation moves the whole price path. Four seeds screen; eight decide.
