@@ -727,3 +727,65 @@ is the upgrade path if this ever binds again.
 - **Test again only with:** a day-0 cash source. The two are not independent -
   the sheep opening above changes what day 0 buys, so if a later change frees
   opening cash, re-screen the crew term beside it rather than alone.
+
+## 2026-08-14 - The herd capacity cap, and the crew that was supposed to fill it (rejected)
+
+- **State:** v14 (the sheep opening, committed 0af55ee). Screened interactively
+  beside the scheduled run, not by it.
+- **The measurement this came from.** An instrumented mirror logs what blocks the
+  next animal on every one of the 720 turns. On v13: `empty_struct_waiting` 230,
+  `past_deadline` 215, **`slots` 122 - and days 16-20 are `slots` on 24 turns of
+  24, solidly** - `cash` 78, `free` 74. Feed coverage 274 of 286 animal-days,
+  care 273, every berry tile watered, and every product still in *scarcity* at
+  the last bell (milk $251 against a $160 base, strawberry $196 against $120,
+  wool $231 against $200). Nothing the farm sells is glutted and nothing it owns
+  is neglected, so the reading was: this farm is not badly run, it is forbidden
+  from being bigger, and `ANIMAL_SLOTS = 9` is what forbids it.
+- **Decision:** split `ANIMAL_SLOTS` into capacity and `ANIMAL_LOAD` (hiring
+  demand) exactly as `PLANT_SLOTS`/`PLANT_LOAD` are split, and lower the capacity
+  number to 6 - the ratio the real chore load implies (FEED + CARE + COLLECT plus
+  a harvest every second day is ~3.5 actions against a plant's ~1.5, so a head is
+  2.3 plants, not 4.5). Then lift `HIRE_MAX_WAGE` back to 144 for the crew the
+  bigger herd needs.
+- **Evidence, and it is a clean reversal.** Against **v13** the direction looked
+  right: `ANIMAL_SLOTS = 6` alone 1/6 and mirror -$1,031.8, but paired with a
+  wider rush window (`HERD_RUSH_DAY`/`SIZE` = 10) 4/6 and mirror +$3,552.0, and
+  with `HIRE_MAX_WAGE = 144` beside it **5/6, +$4,626.3, mirror +$8,396.3**
+  (137,395.0 against 128,998.7), with 233 slightly behind at +$7,855.3. Against
+  **v14** the same three constants are 1/8 at the full 4-seed gate, **mirror
+  -$19,063.3**, and every piece is negative on its own: `ANIMAL_SLOTS` 6 mirror
+  -$7,419.7, 7 -$6,143.7, `HIRE_MAX_WAGE = 144` **-$16,425.0**.
+- **Why it failed in this pairing, and the lesson is about the diagnosis, not the
+  constant.** The measurement was right and the inference was backwards. `slots`
+  binding on days 16-20 is not a missed opportunity - it is the capacity model
+  correctly refusing animals that arrive with two productions left and a full
+  chore load to pay for. The sheep opening had already taken the same gain from
+  the other end, by buying the herd on day 0 where a head has 29 days to repay
+  itself, and it is worth more there: +$8,687 of mirror against the +$8,396 this
+  measured on the baseline that lacked it. **The two changes address the same
+  shortage and do not add; the late one is strictly the worse half.** This is the
+  seventh time a constraint has been measured correctly here and relaxing it has
+  lost - the standing question is not "what is binding" but "what would the farm
+  buy with the slack, and on which day".
+- **Also screened on the v14 base and rejected, all at 3 seeds:**
+  `WHEAT_PER_ANIMAL = 0.5` (6/6 head-to-head at **+$8,695.0** and mirror
+  **-$1,947.8** - the cleanest mirror catch in this ledger since v7: growing less
+  wheat means buying more, and wheat is the one input both farms bid for);
+  `BERRY_TILES = 32` (mirror +$5,113.8, below the 40-tile pairing, confirming 40
+  a fourth time); `FEED_DAYS = 8` (mirror -$2,084.3).
+- **And the feed-logistics knob is now closed from both sides.** `_fetch_jobs`
+  collapses to one-item shed runs whenever `short < MAX_CARRIERS`, which is every
+  turn after a feed: measured 475 PICKUP actions and 1,060 fetch jobs offered to
+  deliver 274 feeds, with `per = 1` on 295 of the 328 turns that offered one, and
+  carried wheat pinned at 12 all day including the hours after the last animal is
+  fed. Batching it (`per >= 2`) is **6/6 head-to-head at +$5,885.8 and mirror
+  -$2,015.7**. Sizing the demand down instead was already rejected at v11
+  (mirror -$1,574.6). Both directions lose in the mirror, so the churn is real
+  but the current setting is a local optimum - leave it alone.
+- **Verdict: rejected.** No file in the repository was changed; all of it ran on
+  copies outside the tree.
+- **Test again only with:** a change that adds *early* capacity. Nothing that
+  raises the herd cap after day 15 has ever paid, and there are now four screens
+  saying so. `HIRE_MAX_WAGE` should still be re-screened whenever `load` moves,
+  but it must be screened *on the current baseline* - the 144/89 ordering flipped
+  completely between v13 and v14.

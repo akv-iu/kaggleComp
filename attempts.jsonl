@@ -48,3 +48,6 @@
 {"title": "Hold the opening rush window open until the melon money lands (rejected)", "verdict": "rejected", "wins": null, "mean": null}
 {"title": "The rush window and the rush ceiling together (rejected)", "verdict": "rejected", "wins": null, "mean": "-$3,756"}
 {"title": "The twenty screens that found nothing, and what they rule out (evidence, no code change)", "verdict": "unknown", "wins": null, "mean": "-$483"}
+{"title": "Open the herd with four sheep, not four cows (selected as v14 candidate)", "verdict": "selected", "wins": null, "mean": "$1"}
+{"title": "Hire for the herd the opening rush is about to build (rejected on screening)", "verdict": "rejected", "wins": null, "mean": "-$3,227"}
+{"title": "The herd capacity cap, and the crew that was supposed to fill it (rejected)", "verdict": "rejected", "wins": null, "mean": "$200"}
