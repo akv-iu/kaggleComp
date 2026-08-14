@@ -639,3 +639,91 @@ is the upgrade path if this ever binds again.
 - **Fertilizer delivery, rejected, and the diagnosis was inverted.** Instrumenting `_daily_refresh_plants` shows berry execution is essentially perfect - **148 of 160 production nights, 0 dry, 0 clipped** - with the single leak being **30 nights watered but not fertilized**. Adding FERTILIZER to the shed-fetch demand made it *worse* (unfertilized nights 30 -> 47, -$14,393 at seed 0) because the new priority-`-1` pickups outbid the priority-0 fertilize jobs they were meant to serve. Promoting FERTILIZE to -1 beside FEED and PLACE did raise berry units 266 -> 272 (and 284 with fertilizer added to the carry-through `keep` set) **and lowered the score both times**, which is the saturation result again from the other side: more berries is not more money.
 - **Capital ordering, rejected.** Capping berry seed at the number of bare tiles (-$2,662) and moving `BUY_LAND` ahead of berry seed in the order (**exactly zero change, every seed identical**). The second is the useful one: it proves land is not being starved by seed. What starves it is `keep`, which jumps from `FEED_DAYS_EARLY` to `FEED_DAYS` on day 9 and locks $2,700 of a $3,689 bank. Extending that window (day 12 or 16, identical results) is -$3,257 - so the reserve is not the answer either, and the day-9 cash freeze is real but has no cheap fix.
 - **Best distinct next hypothesis:** the opening rush pair in the entry above, re-run at eight seeds. It is the only thing this run measured that moved both gates together, and it moved them by +$2,933 and +$3,252.
+
+## 2026-08-14 - Open the herd with four sheep, not four cows (selected as v14 candidate)
+
+- **State:** v13 live, public rating **859.5 (IMPROVED** from v12's 813.9; the
+  9/16 ratio miss was noise, not a rejection). Field record 124-118 over 242
+  indexed games; our best game 137,458 against the field's 175,862.
+- **The measurement that chose it.** Instrumented a v13 mirror on seed 0 (score
+  131,785) and reconstructed Suda's 165,925 in episode 92421750 day by day.
+  Their herd: **5 head on day 1 (four sheep and one cow, bank $3,000 -> $1), 10
+  by day 8, 12 by day 9, and never grown again.** Ours: 4 head on day 1, then
+  **5-6 head from day 2 to day 10**, reaching 8 only on day 11. Logging
+  `_market` at hour 0 shows why and it is not the pipeline: money at dawn on
+  days 2-9 is $202/679/592/923/1512/1350/869/1349, and `budget` is negative or
+  under one animal's price on every one of them. Days 2-10 are a cash desert.
+- **What fills it for them is the calendar, not the bank.** Sheep
+  `first_yield_day` is 6 and cow's is 8; a cared production is 3 units, so four
+  sheep pay $2,400 of wool on day 6 while four cows pay nothing until day 8.
+  Suda spends that day-6 wool on six cows across days 7-9. Our `_next_animal`
+  scores `HERD[name] * total - counts[name]`, which returns COW first from an
+  empty herd, and `_market` then buys `want` **cheapest-first**, so a thin
+  opening budget is spent on the animal that pays last.
+- **Decision:** in `_next_animal`, ahead of the mix score and behind the `stock`
+  override, return SHEEP while `day <= HERD_RUSH_DAY` and the herd holds fewer
+  than `RUSH_SHEEP = 4` of them. The target mix, the rush window, the rush size
+  and the wage cap are all untouched.
+- **Pre-test reasoning, and why the mirror can be trusted here:** this reorders
+  which head is bought first inside a window that already buys a fixed number of
+  head. It adds no tile, no crop and no animal, so it cannot be the
+  mutual-restraint artefact that inflated the land gate, nor the racing artefact
+  that sank v7. Verified rather than assumed - see the supply table below.
+- **Screening (mirror mean, baseline 128,998.7 at 3 seeds / 122,674.5 at 5):**
+  `RUSH_SHEEP` 3 scored **116,551.2 (-$12,447)** and 5 scored **115,980.2
+  (-$13,018)**; 4 scored 132,637.8 at 3 seeds and **132,017.1 at 5 seeds
+  (+$9,342.6)**. Four is a point, not a slope: a third sheep leaves a cow's
+  worth of budget stranded, and a fifth $500 sheep is the melon seed and the
+  first cow.
+- **Evidence:** **8/8 wins at 4 seeds, mean $116,877.9 against $109,888.8
+  (+$6,989.1)**, every status DONE, worst pairing **+$2,504**, no losing
+  pairing. **Mirror +$8,686.5** (133,910.0 against 125,223.5). `py_compile` and
+  `test_agent.py` pass; the standalone episode scores $169,467 and the seed-0
+  mirror game **$148,323**, above our best public game ever ($137,458).
+- **Re-run at 8 seeds: 14/16, +$5,753.4, mirror +$10,010.5** (130,938.9
+  against 120,928.4), every status DONE. The only losing pairing is seed 5
+  in both seats (-$3,315 and -$3,011); every other seed gains in both seats.
+  The mirror gain *grows* with the sample while the head-to-head mean falls
+  slightly, which is what a production gain looks like when the extra seeds
+  add pairings rather than variance.
+- **The supply check, because both mirror blind spots are supply artefacts.**
+  Units sold per farm, candidate against baseline: strawberry 276/263, milk
+  163/**168.5**, wool 144/105, melon 72/84, fertilizer 187/176, wheat 131/137,
+  egg 32/68. **Total goods to market 1,005 against 1,001.5 - flat.** Milk units
+  *fall* while milk revenue rises $36,311 -> $44,376, which is the mechanism
+  exactly: the same herd sells the same goods earlier and into a shallower
+  market. Wheat *bought* falls 216 -> 199 (-8%), the one number that touches a
+  shared price on the buying side, and the head-to-head - where the baseline
+  still bids the old way - is 8/8 rather than the 2/8 that exposed `per = 1`.
+- **Herd at the last bell:** 7 cow / 5 sheep / 1 goose against 6 / 5 / 2. One
+  goose becomes one cow; 13 head either way.
+- **Verdict: selected.** Both gates clear and agree in direction and magnitude,
+  which is the signature every shipped winner has shown (v9 +10,041/+11,235,
+  v10 +9,648/+9,671, v11 +18,552/+18,468, v12 +17,391/+5,533).
+- **Reconsider if:** a shop rotation changes which of milk/wool the town drains,
+  or `HERD_RUSH_DAY`/`HERD_RUSH_SIZE` move - `RUSH_SHEEP = 4` was fitted against
+  an 8-day, 8-head window and the +-1 screens collapse, so re-screen it rather
+  than assume it travels.
+
+## 2026-08-14 - Hire for the herd the opening rush is about to build (rejected on screening)
+
+- **State:** v13. Logged crew size, PASS and pending jobs by day on a v13 mirror.
+  **Day 0 runs on 2.9 units per farm with 7.8 jobs standing per turn and exactly
+  zero PASS** - the only fully saturated day before day 20. `crew_cap =
+  ceil(load / SLOTS_PER_UNIT)` and `load` on an empty farm is the flat
+  `+ SLOTS_PER_UNIT` bump, so day 0 authorises **one** hand; the day ends with
+  two. Hands 2-6 cost $1+$2+$3+$5+$8 = $19 for the day.
+- **Decision:** inside the same guard, add the herd the rush intends to build -
+  `max(0, HERD_RUSH_SIZE - n_animals - n_struct) * ANIMAL_SLOTS` - and in a
+  second variant the melon field beside it.
+- **Evidence:** mirror mean at 3 seeds **125,771.7** for the herd term alone
+  (-$3,227) and **130,864.3** with melon (+$1,865), against 128,998.7. Pruned
+  before a full benchmark.
+- **Why it failed in this pairing:** day 0 is saturated with labour but *ends at
+  $204*. The cash, not the crew, is what caps the opening herd, so extra hands
+  build structures the bank cannot stock and then draw wages against days 1-9,
+  which the same log shows are 40% idle (88-150 PASS unit-turns a day). This is
+  the sixth time aggregate idleness or its absence has failed as a hiring signal.
+- **Test again only with:** a day-0 cash source. The two are not independent -
+  the sheep opening above changes what day 0 buys, so if a later change frees
+  opening cash, re-screen the crew term beside it rather than alone.

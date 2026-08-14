@@ -76,6 +76,8 @@ HERD_RUSH_DAY = 8
 # stop fighting -- screened at 6/8/10/12, mirror +6,245/+12,910/+9,843/lower, and
 # only 8 keeps full berry revenue while milk rises.
 HERD_RUSH_SIZE = 8
+# ...and the first four head of it are sheep. See `_next_animal`.
+RUSH_SHEEP = 4
 # Days up to here take only the bird that pays fastest. Off (-1), and it has to
 # be off for the rush. The rule was written for a pipeline that bought one head
 # every two days, where the first head should obviously be the one that pays on
@@ -226,6 +228,21 @@ def _next_animal(counts, day, structure=None, stock=None):
                 and (structure is None or ANIMALS[n]["structure"] == structure)]
         if held:
             return max(held, key=lambda n: stock[n])
+    # The opening buys sheep before cows, whatever the target mix says. Days 2-10
+    # are the farm's cash desert -- the bank sits at $200-1,500 and `budget` is
+    # negative on most of them, so the herd freezes at 5-6 head until the melon
+    # harvest lands on day 9. What breaks that is the first product to reach the
+    # market: a sheep placed on day 0 produces on day 6, a cow not until day 8,
+    # and 3 cared wools at $200 is $600 two days before the first $480 of milk.
+    # Suda's $165,925 opens with exactly this -- four sheep and one cow on day 0,
+    # then six cows on days 7-9 out of the day-6 wool, reaching twelve head by
+    # day 9 against our six. Four is the number, and it is narrow: three screened
+    # at -$12,447 of mirror mean and five at -$13,018, because a fifth $500 sheep
+    # is the melon seed and the first cow. The target mix is untouched -- this
+    # only reorders the opening, so nothing extra reaches the market.
+    if (day <= HERD_RUSH_DAY and counts.get("SHEEP", 0) < RUSH_SHEEP
+            and structure in (None, "PASTURE")):
+        return "SHEEP"
     best = best_score = None
     for name, a in ANIMALS.items():
         if structure is not None and a["structure"] != structure:

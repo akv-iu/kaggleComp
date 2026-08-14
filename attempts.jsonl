@@ -44,3 +44,7 @@
 {"title": "Land bought while our own land is bare (quadrant cap, then the utilisation gate)", "verdict": "rejected", "wins": null, "mean": "$152,768"}
 {"title": "The land utilisation gate, and the mirror's second blind spot (rejected)", "verdict": "rejected", "wins": null, "mean": null}
 {"title": "Re-screen the hire wage cap on v12 (selected as v13)", "verdict": "selected", "wins": null, "mean": null}
+{"title": "One wheat per carrier (rejected)", "verdict": "rejected", "wins": null, "mean": null}
+{"title": "Hold the opening rush window open until the melon money lands (rejected)", "verdict": "rejected", "wins": null, "mean": null}
+{"title": "The rush window and the rush ceiling together (rejected)", "verdict": "rejected", "wins": null, "mean": "-$3,756"}
+{"title": "The twenty screens that found nothing, and what they rule out (evidence, no code change)", "verdict": "unknown", "wins": null, "mean": "-$483"}

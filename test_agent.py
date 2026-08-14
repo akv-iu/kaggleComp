@@ -21,8 +21,12 @@ def test_harvest_day():
 def test_next_animal():
     empty = {a: 0 for a in ANIMALS}
     # The opening buys premium animals from day 0: the rush fills the whole herd
-    # there, and gating that day to geese spends it on the dump product.
-    assert _next_animal(dict(empty), 0) == "COW"
+    # there, and gating that day to geese spends it on the dump product. The
+    # first four of them are sheep, which produce on day 6 against the cow's
+    # day 8 and fund the cows bought on days 7-9.
+    assert _next_animal(dict(empty), 0) == "SHEEP"
+    assert _next_animal({"GOOSE": 0, "COW": 0, "SHEEP": 4}, 0) == "COW"
+    assert _next_animal(dict(empty), HERD_RUSH_DAY + 1) == "COW"
     assert _next_animal(dict(empty), 5) != "GOOSE"
     # Deadlines: a cow bought on day 21 never reaches its first production, and a
     # goose bought after day 20 eats more wheat than it lays egg.
