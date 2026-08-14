@@ -789,3 +789,159 @@ is the upgrade path if this ever binds again.
   saying so. `HIRE_MAX_WAGE` should still be re-screened whenever `load` moves,
   but it must be screened *on the current baseline* - the 144/89 ordering flipped
   completely between v13 and v14.
+
+## 2026-08-14 (v14 baseline, run 2) - Five hypotheses off one instrumented mirror, all rejected
+
+- **State:** v14 in flight, public rating **850.4** against v13's 854.3, marked
+  REGRESSED - both still moving, and the difference is inside the noise this
+  ledger has already recorded for v13 (shipped at 9/16 head-to-head and worth
+  +45 points). `main.py` and `test_agent.py` identical to
+  `.automation/baseline_main.py` and `.automation/baseline_test_agent.py` at the
+  start and at the end of this run.
+- **Where the hypotheses came from - one instrumented seed-0 v14 mirror
+  (148,323/148,289) logged at dawn every day.** The picture it gives:
+  - The herd is **frozen at 5 head from day 2 to day 9**; money at dawn on those
+    days is $236/448/459/727/970/1233/878/1164. The v14 sheep opening raised the
+    score but did *not* remove the cash desert it was written for.
+  - **Twelve of twenty-five opening tiles carry nothing on days 2-5**, because
+    `_wheat_target` caps wheat at 0.75 per animal (4 tiles for 5 head), melon
+    stops at 8 and berries do not start until day 6.
+  - `MELON_TILES = 8` is reached **only on day 7**, so half the opening cash crop
+    harvests on day 17 rather than day 10.
+  - Per-farm revenue: strawberry $65k, milk $44k, wool $30k, melon $17.6k,
+    fertilizer $11.7k, wheat $5.1k, egg $1.9k. Feed purchases $8.3k.
+  - The end-of-season price table: **MILK $286 and rising every single day**,
+    STRAWBERRY peaks at $265 on day 21 and falls to $197, WOOL oscillates
+    148-236, MELON holds $230-278 all season, TOMATO $94 (nobody grows it),
+    CARROT $42, WHEAT $53, FERTILIZER $33.
+  - **The shed is not a leak.** Patching `_drop_inventories_to_shed` across the
+    whole game counts **4 units discarded (milk)**, even though the shed reads
+    100 of 100 at dawn on day 25. This re-confirms the v11 finding on a farm
+    twice the size; stop suspecting the shed.
+
+### Attempt 1: plant the bare opening tiles with wheat (rejected)
+
+- **Change:** `OPENING_WHEAT_TILES = 12` for `day <= OPENING_WHEAT_DAY = 2`, as a
+  third floor inside `_wheat_target`.
+- **Pre-test reasoning:** the twelve tiles are bare, a wheat seed is $10, wheat
+  planted on day 0-2 harvests on day 4-5 and `HARVEST` on a non-ongoing crop sets
+  the tile back to `None`, so the tile is free again before `BERRY_FIRST_DAY = 6`.
+  The herd eats one wheat a head a day straight out of the cash desert, so the
+  farm would be growing the very input that drains days 2-9.
+- **Evidence:** 2-seed screen **1/4, -$4,361.0 head-to-head, mirror -$14,467.3**
+  (122,117 against 136,585).
+- **Why it failed, measured on seed 0:** wheat purchases did not fall at all
+  (488 units against 474). The change ran through the *herd composition*
+  instead: the extra `load` and the extra early feed bought a sixth head sooner
+  and the marginal head was a sheep, so the game ended 12 sheep/12 cows against
+  10/14 - and **wool collapsed from 288 units at $210 to 340 units at $80**.
+  Milk fell with it ($272 to $238 a unit) and strawberry lost 90 units.
+- **Test again only with:** evidence that the marginal opening head is a cow.
+  The bare tiles are real and cheap; what they finance is not.
+
+### Attempt 2: the field leader's opening - twelve melon, bought before the herd (rejected)
+
+- **Change:** `MELON_TILES` 8 -> 12, and the melon-seed block moved *above* the
+  livestock block in `_market` so the opening budget reaches it first.
+- **Pre-test reasoning, straight off wenjinyang's $175,862 (episode 91992026,
+  our 69,326).** Reconstructed day by day, they plant **12 melon on day 1**, hold
+  **4 head until day 8**, bank **$16,919 by day 11** against our $3,001, and then
+  buy their whole 14-head herd on day 12 out of the melon money - 8 cows, 6
+  sheep, no geese, and they never buy the fourth quadrant. Melon holds $245 a
+  unit in our own games, so $80 of seed is ~$1,500 in ten days, and cash on day
+  11 buys the same animal cash on day 0 does.
+- **Evidence:** 2-seed screen **0/4, -$10,226.8, mirror -$18,380.8**.
+- **Why it failed, measured on seed 0:** the melon half worked and the trade is
+  still bad. Melon went 144 units/$35,298 to **246 units/$47,143**, i.e. the
+  extra 102 units fetched **$116 each** against the $245 the first 144 fetch -
+  `above_func` on melon is `sq`. Against that, the herd sat at **2-4 head until
+  day 12** and milk lost $12k, wool $19k, strawberry $27k. The day-0 head is
+  worth several times the melon it displaces, exactly as the opening-rush entry
+  claims; wenjinyang's opening is not transferable to an agent that already
+  front-loads its herd.
+- **Test again only with:** nothing. This is the sixteenth crop-expansion refusal
+  and the first one whose replacement was measured against the field leader's own
+  plan.
+
+### Attempt 3: buy the animals in the order `_scan` asked for them (rejected)
+
+- **Change:** `for name, n_want in want.items()` in place of
+  `sorted(want.items(), key=cost)` in `_market`.
+- **Pre-test reasoning - a genuine inconsistency, found by instrumentation.**
+  `RUSH_SHEEP = 4` makes `_next_animal` ask for four sheep first, but `_market`
+  then buys `want` cheapest-first and COW is $400 against SHEEP's $500. Day 0
+  wants `{SHEEP: 4, COW: 2}` and **actually buys 2 cows and 3 sheep** - so the
+  composition v14 is credited with is not the composition v14 produces. Suda's
+  $165,925 opens with four sheep and one cow, which is what the scan order buys
+  out of the same $2,800.
+- **Evidence:** 2-seed screen **0/4, -$15,246.2, mirror -$34,773.8** (101,811
+  against 136,585) - the largest single-change loss ever measured in this project.
+- **Why it failed, measured on seed 0:** the opening became 4 sheep and no cow,
+  and the herd never recovered its milk: 14 sheep bought against 10, 11 cows
+  against 14, **wool 399 units at $96 against 288 at $210, milk 155 units against
+  326**. The cost sort is not a bug that survived v14 - it is the thing that holds
+  the sheep count down, and `RUSH_SHEEP = 4` is tuned *through* it. The tested
+  quantity was never "four sheep"; it was "three sheep and two cows".
+- **Test again only with:** never on its own. If the opening composition is
+  revisited, change `RUSH_SHEEP` and read the realised herd, not the constant.
+
+### Attempt 4: stop buying sheep after the rush window (rejected on the gate, and it barely binds)
+
+- **Change:** `ANIMALS["SHEEP"]["last"]` 20 -> 8.
+- **Pre-test reasoning:** three independent perturbations above all moved the
+  score through one number - wool. Baseline 288 units at $210; +52 units -> $80;
+  +111 units -> $96. Wool is the only product on `sq` (amp 0.058) and milk is on
+  `sqrt` and still climbing at $286 on day 29, so a sheep bought inside the rush
+  is the fastest first producer on the board (day 6 against a cow's day 8) and a
+  sheep bought on day 9-10 is twelve wool units sold down the cliff.
+- **Evidence:** 2-seed screen 3/4, +$291.0, **mirror +$1,131.8** - the only
+  positive screen of the run, so it was taken to the full gate. Full 4-seed
+  benchmark: **5/8, +$145.5 mean, mirror +$565.9**, all DONE. Head-to-head fails
+  7/8.
+- **Why it failed, and the diagnosis is the interesting part.** On seeds 0, 2 and
+  3 the candidate's score is **identical to the baseline's in the opposite seat**
+  - the rule changes nothing at all. The late sheep are not bought late: they are
+  bought inside the rush window and sit in the shed, and `_next_animal` returns
+  held stock before it ever reaches the `day > a["last"]` test, which is correct
+  (an animal already paid for must not wait). Only seed 1 differs, at +$582 in
+  both seats. So the mirror's +$566 is one seed of signal, not four.
+- **Test again only with:** a cap that binds where the sheep are actually
+  bought - inside the rush - which is `RUSH_SHEEP`, and attempt 3 shows that
+  constant is already at a sharp optimum.
+
+### Attempt 5: shift the herd ratio from sheep to cow (rejected)
+
+- **Change:** `HERD` 10/50/40 -> **10/60/30**, keeping the geese.
+- **Pre-test reasoning:** the wool evidence above, plus the gap in the ledger -
+  0/55/45 (-$1,430), 0/70/30 (-$17,350) and 10/70/20 (2/8, -$2,586) had all been
+  tested, but every one of them either removes the geese or moves 20 points at
+  once. 10/60/30 is the single unscreened step in the direction all of today's
+  measurements point.
+- **Evidence:** 2-seed screen **0/4, -$4,694.2, mirror -$10,283.0**.
+- **Why it failed:** it interpolates between two losing endpoints and loses. The
+  mix entry in `memory.md` is right that 10/50/40 is the shape of three price
+  curves rather than a guess; today's evidence sharpens *why* - wool is at its
+  cliff **and** it is the hedge, and the marginal cow crashes the milk `sqrt`
+  from the other side. Cows being individually better ($259 an animal-day against
+  $228) does not make a cow-heavier herd better.
+- **Test again only with:** a shop rotation that changes which of milk/wool/egg
+  the town drains. The mix question is now closed from four directions.
+
+- **Verdict for the run: no candidate.** `main.py` and `test_agent.py` restored
+  byte-identical to their pre-run snapshots, `test_agent.py` passes
+  (`unit checks ok`, episode 169,467 against starter 3,491), `py_compile` clean,
+  and **no `.automation/submit_request.json` was written**.
+- **Best distinct next hypothesis: the 334 pickups the field leader does not
+  make.** wenjinyang delivers **300 FEED with 145 PICKUP** on a 14-head herd; we
+  deliver 283 FEED with **479 PICKUP** on 13 head, and PICKUP is our second
+  largest action class after walking. Both previous repairs attacked the *size*
+  of the fetch demand (`MIN_LOAD = 3` batching: mirror -$2,015.7; `per = 1`:
+  mirror -$1,656.9 plus a wheat-price artefact) and both lost. Neither touched the
+  cause the instrumentation names: `_fetch_jobs` recomputes `short` against
+  *instantaneous* carried stock every turn, so each wheat consumed by a FEED
+  immediately reopens a one-item shortfall and offers eight fresh single-item
+  dock runs. The untested repair is to size the demand against wheat that is
+  **committed but not yet delivered** - carried wheat minus the FEED jobs already
+  standing - rather than against the wheat in hand. That is a different quantity
+  from both rejected attempts, and it is the only measured 3:1 action gap left
+  against the top of the field.
