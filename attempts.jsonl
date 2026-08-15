@@ -51,3 +51,4 @@
 {"title": "Open the herd with four sheep, not four cows (selected as v14 candidate)", "verdict": "selected", "wins": null, "mean": "$1"}
 {"title": "Hire for the herd the opening rush is about to build (rejected on screening)", "verdict": "rejected", "wins": null, "mean": "-$3,227"}
 {"title": "The herd capacity cap, and the crew that was supposed to fill it (rejected)", "verdict": "rejected", "wins": null, "mean": "$200"}
+{"title": "2026-08-14 (v14 baseline, run 2) - Five hypotheses off one instrumented mirror, all rejected", "verdict": "unknown", "wins": null, "mean": "-$1,430"}

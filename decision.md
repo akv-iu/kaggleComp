@@ -945,3 +945,200 @@ is the upgrade path if this ever binds again.
   standing - rather than against the wheat in hand. That is a different quantity
   from both rejected attempts, and it is the only measured 3:1 action gap left
   against the top of the field.
+
+## 2026-08-15 (v14 baseline, rating 843.9 IMPROVED) - the shop lottery, and two rejected benchmarks
+
+**State at the start of the run.** `main.py` and `test_agent.py` identical to
+`.automation/baseline_main.py` / `baseline_test_agent.py` (v14, submission
+55507562, public 843.9, up from v13's 838.4). Field record 145-140 across 285
+indexed games; field best 175,862 (wenjinyang), our best 137,458. Six selected
+replays; the two worst losses (Octavi Grau 160,385 v 43,375; wenjinyang 175,862
+v 69,326) and Suda 165,925 v 89,417 all belong to the same opponent family and
+were reconstructed together. Baseline reference measured this run: seed-0 mirror
+148,323; six-seed mirror mean **127,114-127,305** (run-to-run spread ~200, see
+the note on nondeterminism below).
+
+### Where the field gap actually sits, reconstructed before choosing a hypothesis
+
+Suda's 165,925 against our v10, by product: **MILK 320 units/$85,430**,
+STRAWBERRY 300/$73,531, WOOL 180/$23,458, WHEAT 473/$20,648, MELON 117/$20,433,
+FERTILIZER 292/$17,923. Our v14 seed-0 mirror: STRAWBERRY 276/$64,712, **MILK
+163/$44,145**, WOOL 144/$29,775, MELON 72/$17,550, FERTILIZER 187/$11,601, WHEAT
+131/$5,810, EGG 32/$1,874. Milk is the whole gap and its cause is timing, not
+head count: Suda holds 4 sheep + 8 cows from **day 9** and never grows; we reach
+8 head at day 10 and 13 only at day 17, so our cows average five productions to
+their ten. Their action budget is 6,631 unit-turns to our 7,003 and they get
+3,284 productive actions to our 2,564 - 43% walking against our 53% - with
+PICKUP 135 against our 479 and 420 of their 795 CARE actions doing nothing
+(`cared_today` gates it).
+
+Market depth at the last bell of a v14 mirror, which is what prices every
+hypothesis below: **MILK 210 units below I0 at $286**, STRAWBERRY 93 at $201,
+WOOL 65 at $236, MELON 0 at $250 (exactly the town's 140-unit drain, split), and
+value per action COW **$110**, STRAWBERRY $94, SHEEP $83, GOOSE $32, WHEAT $31.
+
+### Attempt 1 (full benchmark) - raise the wheat carried per dock trip (rejected)
+
+- **Exact change:** `PICKUP_LOAD = 3` added; in `_fetch_jobs`,
+  `per = max(1, -(-short // MAX_CARRIERS))` became
+  `per = max(PICKUP_LOAD, -(-short // MAX_CARRIERS))` and the carrier count
+  became `min(MAX_CARRIERS, short)` so the number of parallel carriers could not
+  fall.
+- **Pre-test reasoning.** Instrumented v14 seed-0 mirror: **406 pickups of one
+  wheat and 52 of two to deliver 283 feeds**, 1,048 fetch jobs offered a game,
+  against Suda's **135 pickups for 290 feeds** on the same herd size. Demand is
+  recomputed against wheat *in hand*, so each FEED instantly reopens a one-unit
+  shortfall. The two refusals on record both cut the *number* of carriers
+  (`MIN_LOAD = 3`, `per = 1`); raising the load per trip while holding the carrier
+  count fixed is the untried axis and it is the one the field gap names.
+- **Evidence.** 3/4 head-to-head, mean **+$3,277**, all DONE - and mirror
+  **-$10,245.0** (126,339.5 against 136,584.5, 2 seeds).
+- **Verdict: rejected.** The mechanism worked - PICKUP **479 -> 231** - but
+  **productive actions fell 2,564 -> 2,321 while PASS rose 730 -> 861 and
+  movement rose 3,708 -> 3,807**. Nothing replaced the freed actions, exactly as
+  `MIN_LOAD` found in 2026-08-11. The rest of the loss is not labour at all:
+  carrying 3 wheat per trip leaves a larger overshoot on the crew, it lands in the
+  shed at dusk, and **turns above `SHED_PRESSURE` rose 9 -> 16**. The pressure
+  branch sells at `cap * 4` ignoring floors, and **wool went from 144
+  units/$29,775 to 141 units/$17,391** - the same supply for 58% of the money -
+  with strawberry 276 -> 256 units beside it.
+- **Try again only with:** a productive job the freed carrier can reach in the
+  same turn *and* something that keeps the wheat overshoot out of the shed. Both
+  halves are now required; the second is new.
+
+### Attempt 2 (full benchmark) - price floors that respond to the shop lottery (rejected)
+
+- **Exact change:** `SELL_GATE_DAY = 12` and
+  `SELL_LATE_FLOORS = {"WOOL": 200, "MILK": 200}`; from day 12 the sell test uses
+  `SELL_LATE_FLOORS.get(item, floor)` in place of the static floor. Two lines plus
+  data, nothing else touched.
+- **Pre-test reasoning, and this is the largest new piece of evidence in the
+  run.** A shop unlocks every third day in a random order and is the only real
+  drain in town; the town centre takes one unit per twelve steps shared across all
+  nine products. WOOL's only shop is YARN_STORE. Measured across six *unmodified
+  baseline* mirrors, YARN_STORE's unlock day and wool's outcome line up exactly:
+
+  | seed | YARN_STORE | wool units | wool revenue | $/unit | closing price |
+  |---|---|---|---|---|---|
+  | 0 | day 12 | 144 | $29,775 | 207 | $236 |
+  | 2 | day 15 | 145 | $23,917 | 165 | $229 |
+  | 1 | day 18 | 135 | $19,576 | 145 | $223 |
+  | 3 | day 18 | 144 | $19,102 | 133 | $199 |
+  | 5 | day 21 | 139 | $14,625 | 105 | $148 |
+  | 4 | day 24 | 144 | $12,034 | **84** | **$61** |
+
+  A **$17,741 swing on an identical 140-unit supply**, decided by a die roll the
+  agent has never read - `obs["town"]["unlocked_shops"]` was unused anywhere in
+  `main.py`. Wool is the one `sq` good, so the units that cross I0 fetch nothing.
+- **Screens that shaped the instrument.** A flat season-long `WOOL` floor of 200
+  gains **+$9,147 on seed 4 and +$10,779 on seed 5** and loses **-$23,657 on seed
+  0** (six-seed mirror 125,646 v 127,114) - it blocks the day-6 wool sale that
+  funds the cows bought on days 7-9, which is the whole v14 thesis. A gate keyed
+  on `unlocked_shops` rather than on price: from day 0, 127,956 (-$3,377 on seed
+  0); from day 12, 127,388, i.e. noise. The day-gated *floor* was the best of the
+  family at six-seed mirror **129,754 (+$2,449)**, positive on five of six seeds.
+- **Evidence.** 4 seeds, both seats: **4/8 wins, mean $133,249.0 against
+  $136,194.3 (-$2,945.3)**, every status DONE; mirror **+$449.4** (134,359.4
+  against 133,910.0), below the 500 threshold. Seed 0 +$209/+$141, seed 2
+  +$2,405/+$909, seed 1 -$967 both seats, seed 3 **-$12,985/-$12,307**.
+- **Verdict: rejected**, and the direction of the disagreement names the artefact
+  exactly as this ledger says it should. Mirror **up**, head-to-head **down** is
+  mutual restraint: in the mirror both farms hold their wool, the town drain
+  restores the price, and both collect it. Against a baseline that keeps selling,
+  the opponent's supply sets the price anyway and we sell into their glut late
+  with no early cash to show for it. **You cannot wait out a glut in a market you
+  only half supply.** Seed 3 is the clean case: +$2,000 in the mirror,
+  -$12,600 in both seats head-to-head.
+- **Try again only with:** an instrument that changes *what we produce* rather
+  than when we sell it. See the queued hypothesis below.
+
+### Screened and pruned this run (no full benchmark spent)
+
+Six-seed mirror unless noted; baseline 127,114-127,305.
+
+- **The rush ceiling and window, this ledger's top queued item, on the v14
+  opening.** `HERD_RUSH_SIZE 10`/day 8: 123,114. Size 10/day 10: 125,614. Size
+  12/day 10: 115,820. Size 8/day 10: 114,517 (3 seeds). All well below baseline.
+  The v13 measurement (5/8, +$2,933, mirror +$3,252) **does not travel to the
+  sheep opening** - `RUSH_SHEEP = 4` already takes the gain that widening the
+  window was reaching for. **This closes the queued hypothesis.**
+- **The crew, from three new directions.** `HIRE_MAX_WAGE = 144` with the species
+  caps below: 118,033; with goose capped at 1: 120,124; at 233: 123,068. The
+  mechanism is now measured rather than guessed: one extra hand takes crew
+  12 -> 13 and **herd 13 -> 16**, and the three extra head are two sheep and a
+  goose - **wool 144 -> 160 units but $29,775 -> $13,850, strawberry 276 -> 209
+  units, and `BUY_LAND` 3 -> 2** because the herd's `load` crosses the land gate.
+  Freezing the capacity plan so the extra hand cannot buy anything
+  (`min(crew, PLAN_CREW)`, `PLAN_CREW = 12`) recovers about half - 125,625 - and
+  the hand is *still* worth -$7,000. Marginal wage remains the only signal that
+  prices a hand, now for the seventh time.
+- **Herd capacity with the marginal head forced to be a cow.** A `HERD_MAX` dict
+  capping a species inside `_next_animal`. `ANIMAL_SLOTS` 6/7/8 beside
+  `HERD_MAX = {SHEEP: 5, GOOSE: 1}`: 128,540 / 119,745 / 126,482.
+  `ANIMAL_SLOTS 9` with the caps is bit-identical to baseline. The eighth
+  confirmation: relaxing a correctly-measured binding constraint loses **even
+  when the species it would buy is the profitable one**.
+- **`HERD_MAX = {"SHEEP": 4}` alone: 128,140.5, +$836 over six seeds, no losing
+  seed - and bit-identical to baseline on four of the six.** It cannot reach 7/8
+  head-to-head because a tie is not a win. On record because it is the only
+  positive constant found this run.
+- **Opening wheat with the sheep capped** - the exact re-test condition the
+  2026-08-14 refusal named ("evidence that the marginal opening head is a cow
+  rather than a sheep"). `OPENING_WHEAT_TILES` 12 for day <= 2: 114,051 with
+  either cap; 8 tiles: 119,367. The cap makes no difference at all - the wheat
+  loses on its own account, not through the herd. **Opening wheat is now closed
+  from both sides.**
+- **Fertilize melon** (extend `FERTILIZE` from wheat to any non-ongoing crop in
+  its window): 123,509, and melon *fell* 72 -> 66 units. The environment source
+  closes the idea permanently: `_new_plant` sets `yield_units = 1` for a
+  non-ongoing crop, melon's window is ages 6-12 and its `max_yield` is 6, so the
+  five plain waterings before the day-10 harvest already reach the cap.
+  **Melon is at its ceiling; there was nothing to win.**
+- **Liquidating before the last bell.** `LAST_DAY = 28` scores 118,358, but that
+  test is confounded - `LAST_DAY` also switches off FEED and CARE. Split out as a
+  separate `DUMP_DAY` affecting only the sell-off: day 28 126,778, day 27 126,694,
+  day 26 126,555. Monotone downward, so the endgame dump is not a leak: the town
+  drains at 4x from day 20 and the day-29 price is the best one available.
+- **`HERD = 0/60/40`**, the one unscreened point between two known-losing
+  endpoints: 122,884.
+- **`ENDGAME_WHEAT_TILES` is a dead constant.** 0 and 4 are *bit-identical* to
+  baseline: `_wheat_target` takes `max(round(n_animals * 0.75), ENDGAME...)` and a
+  13-head herd already asks for 10. Any future test of late wheat has to move
+  `WHEAT_PER_ANIMAL` in the same change.
+- **`PICKUP_LOAD = 2`, alone and paired with `BERRY_TILES = 48`** - the
+  "productive job for the freed carrier" pairing attempt 1's failure asks for:
+  117,214 and 118,313; berries at 48 alone 126,122. Both halves and the pair lose.
+
+### A caution on the benchmark itself
+
+The six-seed baseline mirror was measured three times this run at **127,114.2,
+127,304.7 and 126,839.3**, with individual games differing by up to $2,315 (seed
+4, seat 1: 118,239 v 120,554). `env.run` is not bit-reproducible across processes
+here. A mirror delta under about $1,000 at six seeds is inside that noise, which
+is a second reason the +$449 of attempt 2 was not worth defending.
+
+### Outcome
+
+No candidate cleared either gate. `main.py` and `test_agent.py` were restored to
+their exact pre-run snapshots (`diff` clean), `py_compile` passes and
+`test_agent.py` passes ("unit checks ok", episode me=169467). No
+`.automation/submit_request.json` was written.
+
+### Best distinct next hypothesis
+
+**Condition the herd mix on the shops the town has actually unlocked.** The
+lottery evidence above shows the town, not our supply, decides which animal
+product is worth producing: wool realises $84-207 a unit purely on YARN_STORE's
+unlock day, and the same mechanism sets milk (PIZZA/ICE_CREAM/SMOOTHIE) and egg
+(BAKERY/BRUNCH). Every mix refusal in this ledger tested a different *constant*
+ratio - 10/50/40, 10/55/45, 10/60/30, 10/70/30, 0/60/40 - while `HERD` is read in
+`_next_animal` on every turn and could be a function of
+`obs["town"]["unlocked_shops"]` instead. The first four head are fixed by
+`RUSH_SHEEP` before any shop exists; heads 5-13 are bought on days 7-17, by which
+time two to five shops are open and the answer is observable. This is a
+**production** response, so it moves supply and the mirror reads it honestly -
+neither of the mirror's two blind spots applies, unlike attempt 2. Screen it as:
+weight each species by the number of unlocked shops draining its product (a
+single-product shop such as YARN_STORE counting double, since it drains at twice
+the rate), floored so no species is driven to zero, because the fixed 10/50/40 is
+itself a hedge against exactly this lottery.
