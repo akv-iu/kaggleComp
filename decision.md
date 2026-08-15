@@ -1142,3 +1142,199 @@ weight each species by the number of unlocked shops draining its product (a
 single-product shop such as YARN_STORE counting double, since it drains at twice
 the rate), floored so no species is driven to zero, because the fixed 10/50/40 is
 itself a hedge against exactly this lottery.
+
+## 2026-08-15 (v14 baseline, rating 843.4 IMPROVED) - the queued shop-mix hypothesis, and what the benchmark can actually resolve
+
+**State at the start of the run.** `main.py` and `test_agent.py` identical to
+`.automation/baseline_main.py` / `baseline_test_agent.py` (v14, submission
+55507562, public **843.4**, up from v13's 835.2 - the fifth consecutive rise).
+Field record 147-143 across 290 indexed games; field best 175,862 (wenjinyang),
+our best public game 137,458. Six selected replays, all previously reconstructed
+and unchanged since the last run. Baseline reference measured this run in the
+same process as every candidate: six-seed mirror **127,114.2** (seeds 0-5) and
+**131,719.2** (seeds 6-11).
+
+No candidate cleared either gate. Four hypotheses were screened and pruned, and
+the run's real product is a calibration of the benchmark itself, which changes
+how every future screen in this project should be read.
+
+### Attempt 1 (screened, pruned) - condition the herd mix on the unlocked shops
+
+- **Exact change:** `ANIMAL_PRODUCT`, a copy of the env's `SHOPS` table,
+  `_herd_mix(shops, day)` returning a normalised weight per species, `HERD_LIVE`
+  rebuilt at the top of `agent()` from `obs["town"]["unlocked_shops"]`, and
+  `_next_animal` scoring off `HERD_LIVE` instead of `HERD`.
+- **Pre-test reasoning.** This is the standing queued hypothesis from the
+  previous run. A shop unlocks every third day in a random order and is the only
+  real drain in town; YARN_STORE's unlock day alone moves wool between $207 and
+  $84 a unit on an identical 140-unit supply, a $17,741 swing on a die roll the
+  agent had never read. `HERD` is consulted in `_next_animal` on every turn and
+  could be a function of that draw. It is a production response, so neither
+  mirror blind spot applies.
+- **Evidence, three instruments in order.**
+  - Rewarding a drained species (`weight = HERD * (1 + 0.5 * drain)`): seed-0
+    mirror **135,687 against 148,306, -$12,619**.
+  - One-sided instead - penalise a species no unlocked shop lists, since wool is
+    the one `sq` good and 144 units is already the whole drain: six-seed mirror
+    **-$6,199 (undrained weight 0.5), -$3,809 (0.25), -$5,090 (0.25 with a
+    reward term)**. The direction of the per-seed effect is exactly as predicted:
+    on seed 4, the seed where YARN_STORE unlocks on **day 24**, seat 1 gains
+    **+$11,677**; seeds 0-3, where it unlocks on days 12-18, lose heavily.
+  - So the penalty was gated by day, because a shop that has not opened is not
+    undrained, only early - eight shops unlock across days 3-24. From day 9:
+    **-$3,210**. From day 12 or 15: **+$298.2, and bit-identical to baseline on
+    five of six seeds**; the entire delta is seed 4 (130,652/118,239 ->
+    130,567/121,903).
+- **Verdict: pruned, and the reason is structural rather than economic.** By day
+  12 the herd is essentially bought - the day-by-day probe below shows 10 head at
+  day 12 and 13 at day 17 - so a mix that only speaks after the lottery is
+  legible has almost nothing left to decide. Speaking earlier means substituting
+  cows for sheep on the *expectation* of a draw, and the cost of that
+  substitution (this ledger's five constant-ratio refusals) exceeds the value of
+  being right one game in six. **A candidate that is bit-identical to the
+  baseline in five of six games cannot reach 7/8 head-to-head however good it is
+  in the sixth** - the same wall `HERD_MAX = {"SHEEP": 4}` hit last run.
+- **Try again only with:** a species decision that is still open on day 15+, or a
+  gate that can score a conditional policy on the games where it fires. The
+  mechanism is confirmed real and correctly signed; it is the calendar and the
+  gate, not the signal, that refuse it.
+
+### Attempt 2 (screened, pruned) - release the opening cash reserve
+
+- **Exact change:** `FEED_DAYS_EARLY` 3 -> 2 and 3 -> 1; separately
+  `CASH_FLOOR` 200 -> 50.
+- **Pre-test reasoning, measured not assumed.** An instrumented v14 mirror logs
+  money and herd at dawn every day: the herd sits at **5 head from day 2 to day
+  7** with 3 empty structures standing from day 6, and `HERD_RUSH_SIZE = 8` is
+  never reached inside its own window (6 head at day 8, 8 at day 10). At day 6
+  the bank is $970 while a cow needs `cost + keep` free of `CASH_FLOOR` and
+  `n_animals * keep` - about $1,340 of bank. The farm is ~$300 short of a cow on
+  each of days 5, 6 and 7. `FEED_DAYS_EARLY` had never been screened downward;
+  the ledger records that it was never screened independently at all.
+- **Evidence.** Six-seed mirror: `FEED_DAYS_EARLY = 2` **-$9,130.8**, `= 1`
+  **-$1,543.4**, `CASH_FLOOR = 50` **-$428.2**. The per-seed pattern of
+  `FEED_DAYS_EARLY = 1` is the tell: seed 5 **+$24,787**, seed 4 **+$17,373**,
+  seed 0 **-$35,325**. Non-monotone in the constant and chaotic in the seed.
+- **Verdict: pruned.** Two of the three deltas are inside one standard error of
+  zero (see the calibration section) and the third is decisively negative. The
+  ~$300-a-day shortfall on days 5-7 is real and is still the binding constraint
+  on the opening herd, but the cash reserve is not the way to release it - the
+  reserve is what stops a herd bought on credit walking off.
+
+### Attempt 3 (screened, pruned) - size the wheat fetch demand off the unfed herd
+
+- **Exact change:** `n_unfed` counted in `agent()`'s tile loop, and
+  `fetch["WHEAT"] = n_unfed` (with a `FETCH_MIN` carrier floor variant) in place
+  of `fetch["WHEAT"] = n_animals`.
+- **Pre-test reasoning, and the measurement is new.** Instrumented v14 seed-0
+  mirror, logged per day: **479 PICKUP actions hauling ~607 units of wheat to
+  deliver 283 FEEDs, with 324 units riding back into the shed at nightfall**. The
+  cause is exact: demand is `n_animals` all day, so every FEED instantly reopens
+  a one-unit shortfall and the crew tops itself back up to a full herd's worth of
+  feed it no longer needs. Only **65 of the 479** pickups happen after the herd
+  is fully fed, so the waste is not a tail a final-day guard could catch - it is
+  the top-up itself, ~13 redundant pickups a day.
+- **Evidence.** Six-seed mirror: unfed-count demand **-$11,188.1**; with a floor
+  of 4 carriers **-$13,212.5**; with a floor of 8 **-$4,321.7**.
+- **Verdict: pruned, and it settles the question rather than deferring it.** The
+  result is **monotone in the size of the buffer** - the more carriers hold wheat,
+  the better - which is precisely the mechanism the 2026-08-11 refusal ("Exact
+  unfed-count pickup demand") named and could not prove: *the number of units
+  holding wheat is the number of animals that can be fed in parallel, and the
+  apparent overfill is a distribution buffer*. That diagnosis now survives the
+  v12 dispatcher, which is the condition under which it was queued for retry.
+  **The 3:1 PICKUP gap against the field leaders is not waste we can reclaim; it
+  is the price of feeding 13 animals scattered over four quadrants from one
+  shed.** Sixth logistics repair, sixth failure.
+- **Try again only with:** nothing. All three axes - fewer carriers, bigger loads
+  per trip, smaller demand - are now measured and all three lose.
+
+### Attempt 4 (screened, pruned) - spend the free axis of a walk on work
+
+- **Exact change:** `_step_toward` given the set of tiles with standing jobs;
+  when the target is off-axis in both directions, both steps are on a shortest
+  path, so take the one that lands on a job tile. Pass 1 (stand-and-finish) then
+  does that job next turn at no extra distance. Second variant: only divert onto
+  work at least as urgent as the band being served.
+- **Pre-test reasoning.** Movement is **3,708 of 7,002 unit-turns (53%)** against
+  the field leaders' 43%, and v12's win came from making the actions already
+  being taken shorter. Thirty jobs stand against fourteen units, so a unit
+  crossing a job is the cheapest labour on the board, and the Manhattan distance
+  is unchanged by construction.
+- **Evidence.** Six-seed mirror **-$1,945.2** unrestricted, **-$7,217.4** with
+  the urgency restriction. Per-seed: +$3,700 on seed 1 and +$6,500 on seed 4
+  against -$14,000 on seed 2 and -$11,500 on seed 3.
+- **Verdict: pruned** - and it is what made the calibration below necessary. A
+  change that cannot alter a single distance moved the six-seed mean by two
+  thousand dollars and individual games by fourteen.
+
+### The calibration, which is this run's actual result
+
+A change with **zero economic content** was then measured: `_step_toward`
+stepping along y before x instead of x before y. Same Manhattan distance, same
+priorities, same jobs, same market - a pure tie-break, and its own mirror image.
+
+| variant | seeds 0-5 | seeds 6-11 | 12-seed mean |
+|---|---|---|---|
+| y-before-x (neutral) | **-$8,498.1** | -$3,339.9 | **-$5,918.9** |
+| longer-axis-first (neutral) | +$131.9 | **-$6,367.8** | -$3,118.0 |
+
+Per-seed deltas from those two runs give a standard deviation of the per-game
+delta of **$7,905 and $9,721**. The mirror runs one game per seed, so the
+standard error of a six-seed mirror delta is **SD/sqrt(6) ~ $3,200-$4,000**, and
+of the four-seed mirror `verify.py` actually reports, **~$4,000-$4,900**.
+
+**The +$500 mirror threshold is therefore about 0.11 of one standard error.** It
+is not a filter for small effects; it is a coin flip. Detecting a true +$1,000 at
+95% confidence would take on the order of 240 seeds.
+
+This is *not* the process nondeterminism recorded in the previous run. A null
+candidate - `main.py` byte-identical to the baseline - was run through
+`verify.py` and returns **2 wins, 2 losses, 4 exact ties, mean delta $0, mirror
+delta exactly 0.0**, every game bit-reproducible. The benchmark is deterministic;
+it is *chaotically sensitive*. A perturbation with no economic content does not
+average away over re-runs, only over seeds.
+
+**Three consequences, and they are the reason to keep this entry.**
+1. **The 7/8 head-to-head ratio is the only strong filter in the gate.** It is
+   paired - both farms in one game on one market path - and its null is 4/8 with
+   four exact ties. Under noise alone, 7-of-8 has probability ~3.5%. The mirror
+   is worth reading for *sign on a large effect* and for the two blind spots it
+   was built to catch, and for nothing else.
+2. **Every screen in this ledger reported at $1,000-$3,000 of six-seed mirror
+   mean is inside one standard error.** That includes `HERD_MAX = {"SHEEP": 4}`
+   (+$836), `ANIMAL_SLOTS = 6` with caps (+$1,426), this run's day-12 shop mix
+   (+$298), `CASH_FLOOR = 50` (-$428), `FEED_DAYS_EARLY = 1` (-$1,543),
+   `BERRY_TILES = 48` (-$992) and much of the "twenty screens that found nothing"
+   entry of 2026-08-13. None of those numbers was evidence in either direction.
+   Only screens past about $6,000 - which is most of the decisive ones, including
+   every rejection in attempts 1-3 above - carry information.
+3. **A conditional policy that fires in a minority of games cannot pass this
+   gate**, because ties are not wins. That is a property of the gate, not of the
+   policy, and it is now the binding constraint on the whole shop-lottery family
+   of hypotheses.
+
+### Outcome
+
+`main.py` and `test_agent.py` restored to their exact pre-run snapshots (`diff`
+clean; neither file appears in `git status`), `py_compile` passes on both, and
+`test_agent.py` passes ("unit checks ok", episode me=169467). Throwaway
+instrumentation lived outside the agent and was deleted. No
+`.automation/submit_request.json` was written.
+
+### Best distinct next hypothesis
+
+**Screen on the paired head-to-head win count, not the six-seed mirror mean, and
+disbelieve anything under $6,000 of mirror delta.** An 8-seed, 16-game
+head-to-head costs a few minutes and its null is 8/16 with exact ties; a six-seed
+mirror mean costs 35 seconds and its null is exactly 0 but its standard error is
+$3,200. Nearly every screening decision in this project has been made with the
+second instrument. The cheapest concrete test of what that cost: re-screen the
+two constants this ledger records as "positive but unshippable" - `HERD_MAX =
+{"SHEEP": 4}` and `ANIMAL_SLOTS = 6` beside it - on the paired statistic at eight
+seeds. If they hold up, the herd-capacity question closed eight times here
+reopens with a working instrument. If they do not, the *method* behind those
+eight closures is what needs replacing, and the next structural hypothesis should
+be chosen from measured farm mechanics alone - of which the two still unexplained
+are the 53%-versus-43% movement share and the 30 berry production nights that are
+watered but never fertilized.
