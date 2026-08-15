@@ -1338,3 +1338,241 @@ eight closures is what needs replacing, and the next structural hypothesis shoul
 be chosen from measured farm mechanics alone - of which the two still unexplained
 are the 53%-versus-43% movement share and the 30 berry production nights that are
 watered but never fertilized.
+
+---
+
+## 2026-08-15 (v14 baseline, rating 838.4 REGRESSED) — the benchmark is not the competition: `townCenterSellInterval`
+
+### State at the start of the run
+
+`main.py` and `test_agent.py` identical to `.automation/baseline_main.py` and
+`.automation/baseline_test_agent.py` (v14: sheep-first opening rush, 40 berry
+tiles, closest-pair dispatch, `HIRE_MAX_WAGE = 89`). Public field record 148-145
+across 293 indexed games; our best public game $138,163 against a field best of
+$175,862 (wenjinyang, episode 91992026). v14 rated **838.4**, below v13's 841.6 —
+the wrapper marks it REGRESSED, though the two are within each other's noise.
+
+### The finding, and it reframes every number in this ledger
+
+Every competition replay in `replays/` — all nine, across five different
+submissions and four different opponents — carries the same configuration:
+
+```
+"townCenterSellInterval": 24
+```
+
+The `kaggriculture.json` specification default is **12**, and `verify.py` builds
+its environments with `make("kaggriculture", configuration={"seed": seed})`,
+which takes the default. **Every benchmark, mirror, screen and gate in this
+project has been run on a market with twice the competition's town-centre
+demand.**
+
+The mechanism is exact. `_town_consume` fires the town centre on
+`step % center_interval == 0`, so at 24 it fires 30 times a season instead of 60,
+and `TOWN_CENTER_DEMAND_SCHEDULE` multiplies each tick by 1/2/4 by decade. Total
+town-centre drain per product is therefore **70 units in the competition against
+140 locally**. Shop drain is unaffected (`townShopSellInterval` is 4 in both).
+
+The distortion is not uniform. It is the share of a product's demand that comes
+from the town centre rather than from shops:
+
+| product | shops draining it | competition drain | local drain | share distorted |
+|---|---|---|---|---|
+| MELON | **none** | 70 | 140 | **100%** |
+| WOOL | YARN_STORE (x2) | 268 | 338 | 26% |
+| EGG | 2 | 268 | 338 | 26% |
+| MILK | 3 | 367 | 437 | 19% |
+| STRAWBERRY | 4 | 466 | 536 | 15% |
+| WHEAT | 5 | 565 | 635 | 12% |
+| FERTILIZER | none, and not a town-centre product | 0 | 0 | 0% |
+
+Measured on the unmodified v14 baseline, six-seed mirror, same process:
+
+| | interval 12 (gate) | interval 24 (competition) |
+|---|---|---|
+| mirror mean | **127,114** | **99,419** |
+| revenue/farm | $153,387 | $125,157 |
+| STRAWBERRY | 256.8 u @ $222 | 211.8 u @ $189 |
+| MILK | 162.8 u @ $232 | 157.0 u @ $207 |
+| WOOL | 142.5 u @ $154 | **160.0 u @ $112** |
+| MELON | 71.2 u @ $245 | 71.4 u @ $222 |
+
+Wool is the product the mis-set constant hurts most: at interval 24 it crosses
+`I0` on day 7, its `sq` curve takes the price to **$5 on day 17** and it spends
+days 16-25 below the $130 sell floor, so 20-41 units sit in the shed until the
+last bell. Locally it ends *below* `I0` at $236 and the floor is nearly always
+satisfied. The whole "wool is the hedge / wool is at its cliff" argument in this
+ledger was measured on the wrong side of that cliff.
+
+`verify.py` and `loop.py` are frozen by the wrapper and must not be edited, so
+the gate cannot be moved onto the competition configuration. The usable rule is
+therefore: **screen every candidate at both intervals, and disbelieve any gain
+concentrated in a town-centre-drained product.** Attempt 1 below is that rule
+paying for itself immediately.
+
+### Attempt 1 — `MELON_LAST_DAY = 14 -> 19` (rejected, and it is the demonstration)
+
+**Exact change:** one constant. Melon may be replanted until day 19 instead of
+day 14; `_plantable` already refuses anything that cannot harvest by day 29
+(melon needs 10 days), so 19 is the feasibility limit.
+
+**Pre-test reasoning.** Instrumented v14 mirror: the farm carries **33-45 bare
+tiles from day 13 to the last bell** and passes on 10% of its unit-turns, melon
+tiles fall 8 -> 0 between day 16 and day 22 with nothing replacing them, and
+melon's marginal unit was still quoting $245 locally. No strawberry can be
+planted after day 13 (`day + 16 <= 29`), so late melon competes with nothing.
+The one melon refusal on record (2026-08-14) raised `MELON_TILES` 8 -> 12 *from
+day 0* and moved the seed order above livestock; it failed on the opening (herd
+2-4 head to day 12). Extending only the window cannot touch the opening.
+
+**Evidence.** 4 seeds: **6/8, +$2,388.0, mirror +$2,945.5**, all DONE. 8 seeds:
+**12/16, +$2,445.6, mirror +$3,440.8**, all DONE; only seeds 1 and 7 lose, both
+seats each, by $344-$904. Mechanism confirmed at interval 12: melon **71.2 ->
+91.9 units/farm** at a nearly unchanged $245 -> $242, revenue +$4,830, strawberry
+-4.3 tiles/-$588, herd unchanged at 13 head, berries still 40. The farm found the
+melon on bare land exactly as predicted.
+
+**Verdict: rejected — 6/8 at the gate, and worth nothing where it counts.** Run
+at the competition interval the identical candidate scores a six-seed mirror of
+**99,344.6 against the baseline's 99,418.9, i.e. -$74**. Melon units still rise
+71.4 -> 91.5, but the price falls $222 -> $206 and milk and strawberry give back
+$2,015 of the $2,985 melon gain. **Melon is drained by the town centre and by
+nothing else, so it is the single product whose demand the mis-set constant
+exactly doubles, and +$4,270 of local mirror is 100% artefact.** This is the
+cleanest demonstration this project has of the config gap, and it is worth more
+than the constant would have been.
+
+**Try again only with:** a gate that runs at `townCenterSellInterval: 24`. Under
+the competition's demand, melon is already glutted (+74 above `I0` by day 17) and
+there is no melon headroom to buy. Do not re-test any melon quantity again.
+
+### Attempt 2 — keep fertilizer on the carrier (rejected)
+
+**Exact change:** one token. `keep = set(ANIMALS) | {"WHEAT"}` becomes
+`... | {"WHEAT", "FERTILIZER"}` in `_assign`'s idle-drop branch, so an idle unit
+holding fertilizer stays in the field instead of walking it to the shed.
+
+**Pre-test reasoning.** Instrumented: **33.6 of a farm's 152.5 strawberry
+production nights are watered but unfertilized**, and each is one whole $224 unit
+— **$7,526/farm**, 5.7% of the score. `FERTILIZE` can only be taken by a unit
+already holding fertilizer, and the idle-drop rule banks that fertilizer the
+moment its carrier runs out of work. Nothing is lost by keeping it: the nightly
+`_drop_inventories_to_shed` banks it for free anyway. The three repairs on record
+(fertilizer added to shed-fetch demand, `FERTILIZE` promoted to -1, and both plus
+retention) were only ever tested *together*; retention alone was untested.
+
+**Evidence.** **3/8, -$1,638.9, mirror -$14,337.4**, all DONE. The mechanism ran
+backwards: strawberry production nights **152.5 -> 123.5** and fertilized nights
+118.9 -> 95.9, while the *proportion* left plain barely moved (22% -> 22%).
+
+**Why it failed, and this is the transferable half.** The walk to the shed is not
+overhead, it is how the crew gets back to a dock. Measured on v14, `DROP` is 63
+actions carrying **256 moves, 4.06 per drop** — the most expensive walk per
+action on the farm — and every one of those moves ends with a unit standing on a
+dock, where the next `PICKUP` (462 a game, priority -1) is. Freezing carriers in
+the field left the feed and berry loops to be served by units that had to walk in
+from further out, and 29 berry tile-productions a farm never happened. **Do not
+treat the idle-drop walk as waste again.**
+
+**Try again only with:** nothing foreseeable. This is the fourth failure in the
+fertilizer-routing family.
+
+### Attempt 3 — match item-gated jobs first inside a priority band (rejected)
+
+**Exact change:** in `_assign` pass 2, split each priority band into the jobs
+with a `needs_item` and the jobs without, and run the closest-pair matcher over
+the first sub-band before the second. Priority order between bands untouched.
+
+**Pre-test reasoning, and it was the best-evidenced of the three.** v10's biggest
+win was the discovery that only `PICKUP`, `PLACE` and `FEED` can be done by a
+unit already carrying the goods, and that leaving `FEED` at priority 0 beside 40
+tiles of any-unit `WATER` work starved the herd — 10 of 18 animals walked off.
+**The same class of bug still applies to `FERTILIZE`, the fourth item-gated job
+and the only one still sharing a band with `WATER`.** Instrumented, the case
+looked decided: **2,665 fertilize offers a farm are served 101 times**, a
+fertilizer holder exists on 315 of the 381 turns a job is open, and the nearest
+holder stands a **median 3 tiles** from the job. So supply is not the blocker and
+reach is not the blocker — band contention is. Promoting `FERTILIZE` to -1 was
+already refused because -1 is where the herd's carriers live; a sub-band reserves
+the carrier without moving the job.
+
+**Evidence.** **2/8, -$2,142.5, mirror -$8,151.1**, all DONE. `py_compile`
+passed. The mechanism did not fire at all: `FERTILIZE` actions **93 -> 92**,
+fertilized nights 118.9 -> 107.8, plain nights 33.6 -> 32.6, and total production
+nights fell 152.5 -> 140.8. Movement rose (WEST 1,166 -> 1,241) while `FEED` fell
+298 -> 292 and `PICKUP` 462 -> 457.
+
+**Why it failed.** A sub-band is scan order by another name, and scan order is
+exactly what v12 removed: giving the fertilize jobs first pick means a job three
+tiles away claims a holder who was standing next to a water job, and the water
+job then pulls someone in from further out. The gain v12 measured comes from
+matching the *globally* closest pair inside a band; any partition of the band
+destroys it. The reason the same idea worked for `FEED` is not that `FEED` is
+item-gated, it is that **a missed feed kills a $400 asset in two days and a missed
+fertilize costs one $224 unit** — the promotion buys a deadline, not a carrier.
+
+**Try again only with:** a cost function that expresses a job's deadline rather
+than its priority or its item — the condition already on record under "Blending
+priority into the dispatch cost". Nothing here justifies another partition of a
+band.
+
+### Also measured and closed this run
+
+- **Strawberry yield clipping does not exist.** Patching `_daily_refresh_plants`
+  over four mirrors: 152.5 production nights a farm, `units_lost_to_cap` **0.0**,
+  and the tile holds 0 units at production time on 151.5 of 152.5 nights. The
+  `max_yield = 4` hold cap never binds; harvesting is already perfect. Animals
+  lose 11.8 units a farm to `max_held`, ~$2,700, unchanged from the v13 reading.
+- **Layout is not the lever.** Mean Manhattan distance to the nearest dock, v14:
+  animals **2.70**, melon 2.25, strawberry 3.80, wheat 3.52. Reordering the tile
+  loop to give structures the dock-closest tiles would move animals to ~2.4 and
+  melon to ~2.6; animals draw ~298 dock-sourced `FEED` trips a game against
+  melon's ~120 tile-days, so the trade is roughly break-even before it is coded.
+  Rejected on arithmetic without a benchmark. It also cannot be done as a pure
+  reordering: the structure branch decrements `slots` by 9 a head and the rush
+  ignores the slot test, so putting structures first kills day-0 melon outright.
+- **The walk budget, attributed.** v14 at interval 24: 6,957 unit-turns, 54%
+  movement, 10% PASS, 36% productive. Walking runs terminate in `WATER` 742 moves
+  (1.35/op), `FEED` 516 (1.73), `HARVEST` 397 (1.41), `PICKUP` 320 (0.69), `DROP`
+  256 (**4.06**), `COLLECT_FERTILIZER` 246 (0.81), `FERTILIZE` 224 (**2.41**),
+  `CARE` 123 (0.41). Nothing here is reclaimable that this ledger has not already
+  refused.
+- **`slots` is what caps the farm, not land or cash.** At day 14 the farm holds
+  40 berries + 8 melon + 6 wheat = 54 plants and 11-14 animals against
+  `crew * SLOTS_PER_UNIT = 216`, leaving **slots = 9**, and melon replants
+  one-for-one as tiles harvest. Raising `MELON_TILES` late therefore does nothing
+  — the cap is not what binds. And relaxing `slots` has nothing good to spend it
+  on: melon is fake (attempt 1), wheat is refused four times, more animals eight
+  times, more berries five times.
+- **The shed, at the competition interval.** 174 units discarded across both
+  farms at the nightly drop (against 4 at interval 12), because wool sits below
+  its floor for ten days; pressure still fires on only 22 of 719 turns and mean
+  occupancy is 23. The shed is still not the leak, but the discard count is the
+  one number that grows when the market gluts.
+
+### Outcome
+
+`main.py` and `test_agent.py` restored to their exact pre-run snapshots (`diff`
+clean against both `.automation` baselines; neither file appears in
+`git status`), `py_compile` passes on both, `test_agent.py` passes ("unit checks
+ok", episode me=169467). All instrumentation was throwaway, lived outside the
+agent, and has been deleted. `verify.py` and `loop.py` untouched. No
+`.automation/submit_request.json` was written.
+
+### Best distinct next hypothesis
+
+**Re-derive the herd mix at the competition's demand, because the ledger's five
+mix refusals were all measured on the wrong market.** At interval 24 a cow is
+worth 1.5 units/day at $207 = $310/day and a sheep 1.33 at $112 = $149/day, a
+ratio of **2.1**; at interval 12 the same numbers are $348 and $205, a ratio of
+1.7. Combined wool supply is 320 units against a 268-unit drain — a genuine glut
+that does not exist locally — while combined milk is 309 against 367 and still in
+scarcity. `HERD = 10/50/40` and `RUSH_SHEEP = 4` are both fitted to the local
+curve, and the sheep-first opening is worth +$6,989 *because sheep produce two
+days sooner*, which is a calendar argument that survives the config change even
+if the mix argument does not. So the test to run is narrow: hold `RUSH_SHEEP = 4`
+and screen `HERD` toward cows at **both** intervals, requiring a gain at 24 and
+no loss at 12 — the reverse of how every previous mix screen was read. If it
+gains at 24 and loses at 12, that is the config gap again and the honest
+conclusion is that the gate cannot ship the fix; record it and say so rather than
+tuning until the wrong market approves.
