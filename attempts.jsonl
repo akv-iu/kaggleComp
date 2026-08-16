@@ -54,3 +54,4 @@
 {"title": "2026-08-14 (v14 baseline, run 2) - Five hypotheses off one instrumented mirror, all rejected", "verdict": "unknown", "wins": null, "mean": "-$1,430"}
 {"title": "2026-08-15 (v14 baseline, rating 843.9 IMPROVED) - the shop lottery, and two rejected benchmarks", "verdict": "unknown", "wins": null, "mean": "+$2,449"}
 {"title": "2026-08-15 (v14 baseline, rating 843.4 IMPROVED) - the queued shop-mix hypothesis, and what the benchmark can actually resolve", "verdict": "unknown", "wins": null, "mean": "+$836"}
+{"title": "2026-08-15 (v14 baseline, rating 838.4 REGRESSED) \u2014 the benchmark is not the competition: `townCenterSellInterval`", "verdict": "unknown", "wins": null, "mean": null}

@@ -1576,3 +1576,220 @@ no loss at 12 — the reverse of how every previous mix screen was read. If it
 gains at 24 and loses at 12, that is the config gap again and the honest
 conclusion is that the gate cannot ship the fix; record it and say so rather than
 tuning until the wrong market approves.
+
+---
+
+## 2026-08-16 (v14 baseline, submission 55507562, rating 835.8 IMPROVED) — the queued mix hypothesis answered, and the wheat question the benchmark cannot decide
+
+### State at the start of the run
+
+`main.py` = v14 (`RUSH_SHEEP = 4` opening, 40-berry field, closest-pair dispatch,
+`HIRE_MAX_WAGE = 89`). Public rating 835.8 at submission 55507562, up from v13's
+834.4. Indexed field record 149-147 over 296 games; our best game ever 138,163
+against a field best of 175,862.
+
+Six-seed mirror baselines were re-measured in-process this run and both reproduce
+the ledger's recorded numbers exactly, which matters because it means the seed set
+is comparable across runs: **interval 12 -> 127,114.5** (ledger: 127,114) and
+**interval 24 -> 99,418.8** (ledger: 99,419).
+
+### Where the hypotheses came from
+
+Two replays of **v14 itself** against the top of the field — the first time this
+project has had the current agent on record against $150k opponents:
+`episode-93018809` (Jules 154,073 v our 122,245) and `episode-93018717`
+(Vaibhav Patel 152,962 v our 91,161). Exact P&L was reconstructed from recorded
+state deltas (hires from `hires_today` steps, land from `unlocked_quadrants`,
+seeds and animals from `private`), not from sell orders: a multi-unit SELL
+over-orders against the shed, so counting ordered units inflates revenue ~40%.
+
+**Costs are not the gap.** Hires, land, seed and animals come to $15-21k for every
+farm in both games, within $6k of each other. The whole difference is net trading:
+**Jules $174,218 and Vaibhav $171,149 against our $142,015 and $108,902.**
+
+**Nor is execution.** Per berry tile we match or beat them — Jules 161 production
+nights on 42 tiles (3.83/tile) against our 116 on 39 in the game we lost by 32k,
+but 144 on 38 (3.79/tile) in the other. Instrumented on the baseline mirror, feed
+coverage is **98.2%**, care **99.3%**, only **1.5** of 98 production nights are
+unfed, `max_held` clips **11.8** units and `pending_care_bonus` loses **3.8** —
+about $3,500 a farm in total. The ledger was right to stop looking there.
+
+**The gap is size, and it is tile count.** Jules runs 42 berries, 15 pasture
+animals, 18 melon plantings and **5 wheat tiles**, buying 1,149 units of feed.
+Vaibhav runs 34 berries, 14 animals (10 cows, 4 sheep), 20 melon and 130 wheat
+tiles. We run 35-39 berries, 12.6 pasture animals plus 1-2 geese, 12 melon and
+~38 wheat tiles, buying 209 units of feed. **Both leaders run zero geese**, and
+Jules reaches 14 head by day 12 where we reach 10.
+
+### Attempt 1 (full benchmark, REJECTED) — cut the wheat field and buy the feed
+
+**Exact change:** `WHEAT_PER_ANIMAL` 0.75 -> 0.5 and `ENDGAME_WHEAT_TILES` 10 -> 0.
+The pairing is new and is not the old 0.5 test: `_wheat_target` takes
+`max(round(n * 0.5), 10 if day >= 20)`, so under a 13-head herd 0.5 alone still
+returns 10 tiles from day 20 and never cut the late field at all.
+
+**Pre-test reasoning:** a wheat tile is our worst use of a tile — ~5 actions for
+4-6 units at $40-52, about $36 an action against a farm average of $64 — and ten
+of them consume 20 of the 216 `slots` the crew can plan. Wheat's `below_func` is
+`sqrt` with amp 1.0, so 240 extra units of combined demand move the quote about
+$4: feed is nearly price-inelastic while the tile it frees is not.
+
+**Evidence.** Screened first at both intervals over six seeds:
+
+| `WHEAT_PER_ANIMAL` | mirror @12 | mirror @24 |
+|---|---|---|
+| 0.75 (baseline) | 127,114.5 | 99,418.8 |
+| 0.5 + endgame 0 | 126,046.5 (**-$1,068**) | **109,154.0 (+$9,735)** |
+| 0.25 + endgame 0 | 126,368.5 (-$746) | 106,295.0 (+$6,876) |
+| 0.0 + endgame 0 | ~110,533 (3 seeds) | ~91,086 (3 seeds) |
+
+Then the full gate on 0.5: **4/8 head-to-head, mean +$108, mirror -$10,330.1**,
+every status DONE, `py_compile` and `test_agent.py` passing. Rejected.
+
+**Why it failed, and this is the transferable half.** `verify.py 4` uses seeds
+0-3, and the baseline's interval-12 mirror over exactly those four is **131,910
+against its own six-seed mean of 127,114** — seeds 0 and 3 are the two luckiest
+games the baseline owns at that config (148,323 and 137,574 against a ~125,000
+median). The candidate hands that luck back. Instrumented on seed 0 at interval
+12, where it loses $21,876, **production is flat**: strawberry 277 -> 268.5 units,
+cow 165 -> 166.5, sheep 144 -> 137.5, herd 13 -> 13, berries 40 -> 40, crew
+unchanged. Nothing real moved. This is the chaos entry at larger amplitude than it
+has ever been recorded: **a change that alters no output quantity moved a single
+seed by $22,000.**
+
+Wheat's own price is not the mechanism either. Measured over six seeds it is
+*identical* at both intervals — mean $40, tracking $25 -> $52 on the same path —
+while everything we sell is 10-12% cheaper at 24 (strawberry $199 -> $181, milk
+$215 -> $196, wool $166 -> $143, melon $251 -> $225). So the sign flip is not a
+feed-cost story; it is that the benchmark's four-seed sample is anchored on two
+outlier games.
+
+**Condition to try again:** a gate that runs at `townCenterSellInterval: 24`, or
+a head-to-head sample large enough that two lucky baseline seeds cannot anchor it.
+The effect at the competition's config is +$9,735 a farm at ~2.4 SE and is the
+largest unexploited number this project has measured.
+
+### Attempt 2 (screened, pruned) — the queued herd-mix hypothesis
+
+**Exact change:** `HERD = {"GOOSE": 0.00, "COW": 0.60, "SHEEP": 0.40}`, holding
+`RUSH_SHEEP = 4`. This is the hypothesis the previous run queued, and both top
+opponents in the new replays run zero geese.
+
+**Evidence:** interval 12 **127,212 against 132,638** on seeds 0-2 (-$5,426);
+interval 24 **90,983 against 94,610** (-$3,627). Negative at *both* intervals.
+
+**Why it failed:** the queued reasoning was that the five previous mix refusals
+had all been measured on the wrong market. They had been, and the answer does not
+change: removing geese loses at the competition's demand too. The per-head values
+(cow $310/day against sheep $149/day at interval 24) were right about the animals
+and wrong about what the marginal head displaces. **The queued hypothesis is
+answered and closed — do not re-open the mix on the strength of the leaders'
+zero-goose herds.**
+
+### Attempt 3 (screened, pruned) — resolve a shed run at the nearest dock
+
+**Exact change:** in `_assign`, resolve a `PICKUP` job's tile per unit (`min` over
+unlocked docks) in both passes, instead of using `_fetch_jobs`' nominal `docks[0]`.
+
+**Pre-test reasoning, measured before coding:** on a seed-0 mirror **all 938
+PICKUP actions land on (4,4)** while DROP spreads over all four docks
+(89/18/8/7), so a carrier that dropped in the SW walks back across the shed to
+fetch. PICKUP is 469 actions a farm, the largest productive category.
+
+**Evidence:** interval 12 **125,209.5 (-$1,905)**, interval 24 **99,634.5
+(+$216)**. The mechanism barely fires: movement 3,723 -> 3,661 (**62 moves a
+farm**), PASS 739 -> 775, productive actions +27.
+
+**Why it failed:** the closest-pair matcher was already choosing the unit nearest
+the nominal dock, so dock choice had nothing left to save. This confirms the
+ledger's arithmetic ("dock choice is worth at most one move") by implementing it
+rather than estimating it, and it is the third dock experiment to fail. **Do not
+queue a fourth.**
+
+### Attempt 4 (screened, pruned) — a bigger berry field, alone and beside the wheat cut
+
+**Exact change:** `BERRY_TILES` 40 -> 48, and the same beside the wheat cut.
+
+**Evidence:** 48 alone, interval 12 **126,231.5 (-$883)** — reproducing the
+earlier -$992 — and interval 24 **96,051 (-$3,368)**. With the wheat cut beside
+it: 12 -> 122,945, 24 -> 109,246, i.e. no better than the wheat cut on its own
+(+$9,735 -> +$9,827) despite planting 44-47 tiles.
+
+**Why it failed, and it finally has a mechanism rather than a shrug.** The crop
+executes: plantings rise 38.3 -> 42.6 and production nights 149.7 -> 156.3, so
+~11 more units reach the shed, and the score still falls. Strawberry's
+`above_func` is linear at 1.92/unit and combined supply (~534 units) already sits
+at `I0` against a drain of ~540, so ~22 extra combined units cost $4-8 on all 534.
+**Strawberry is market-saturated, not labour-saturated.** Five berry-count screens
+now agree and this is the first one that names the reason.
+
+### Attempt 5 (screened, pruned, and it cost nothing) — plant berries earlier
+
+**Exact change:** `BERRY_FIRST_DAY` 6 -> 4, and separately -> 5. Jules plants its
+first berries on day 3.
+
+**Evidence:** **bit-identical to baseline at both intervals** — 132,638/121,591
+at 12 and 94,610/104,227 at 24, the baseline's own numbers to the dollar.
+
+**Why:** the berry seed is bought in `_market` out of `budget`, which is *negative*
+on days 2-10 (the cash desert this ledger already documents), so no seed exists to
+plant before day 6 whatever the constant says. **`BERRY_FIRST_DAY` is a dead
+constant on the current baseline, exactly like `ENDGAME_WHEAT_TILES`** — cash sets
+the berry start date, not the calendar. This also explains why the v11-era screen
+at 4 read "near-neutral": it was measuring nothing.
+
+### Attempt 6 (screened, pruned hard) — bound parallel herd growth by capacity rather than by the rush window
+
+**Exact change:** in `_scan`, `if rush or (not want and slots >= ANIMAL_SLOTS)` ->
+`if rush or slots >= ANIMAL_SLOTS`, removing the one-head-at-a-time serialisation
+outside the rush window.
+
+**Pre-test reasoning:** the herd freezes from day 9 to day 14 behind `not want`,
+which is why we hold 10 head at day 12 where Jules holds 14. The retry condition
+on record for "parallel growth alone" was that it bought heads on days 14-18 that
+never reach production; with `slots` at ~0 from day 14 under the wage cap it
+should only have been able to fire on days 9-13. That reasoning was wrong.
+
+**Evidence:** interval 12 **51,384 / 61,681**, interval 24 **39,620 / 32,390**,
+against baselines of 132,638/121,591 and 94,610/104,227. Herd 27 head, **berry
+field 4.3 tiles.**
+
+**Why it failed:** `slots` does not bound the branch. A structure consumes capacity
+only when an animal is *placed* in it, and `budget` is only charged when an animal
+is actually bought rather than taken from stock, so neither term throttles
+building. The farm paves itself with pasture and never reaches the berry field —
+the exact failure mode recorded for the uncapped rush, reproduced on the v14
+baseline four generations later. **The `not want` serialisation is load-bearing
+and the retry condition is closed.**
+
+### Outcome
+
+`main.py` and `test_agent.py` restored to their exact pre-run snapshots (`diff`
+clean against both `.automation` baselines), `py_compile` passes on both,
+`test_agent.py` passes ("unit checks ok", episode me=169467). All instrumentation
+was throwaway, lived outside the agent, and has been deleted. `verify.py` and
+`loop.py` untouched. **No `.automation/submit_request.json` was written**: one
+full benchmark was run and rejected, and five further hypotheses were pruned on
+cheap screens without reaching a benchmark, none of them positive at the gate's
+config.
+
+### Best distinct next hypothesis
+
+**Stop looking for a bigger farm and start testing the two seeds the gate is
+anchored on.** Every size hypothesis is now closed with a mechanism: berries are
+market-saturated (attempt 4), capacity is refused eight times, the crew three
+times, melon and the mix at both intervals, and the herd serialisation is
+load-bearing (attempt 6). What is *not* closed is the wheat cut, worth **+$9,735
+a farm at the competition's `townCenterSellInterval: 24`**, which cannot clear a
+four-seed gate whose baseline sits $4,800 above its own six-seed mean.
+
+The narrow, testable question is: **does the wheat cut survive at interval 12 once
+it is not being compared against seeds 0 and 3?** Screen `WHEAT_PER_ANIMAL = 0.5`
+with `ENDGAME_WHEAT_TILES = 0` at interval 12 on seeds 6-17 — twelve fresh seeds,
+none in the gate's sample. If the six-seed -$1,068 is confirmed as noise around
+zero on a disjoint sample, the change is free in the benchmark's market and worth
+$9,735 in the real one, and the right move is to ship it on the head-to-head ratio
+the way v13 was shipped at 9/16 and gained 23 rating points. If it is genuinely
+negative at 12 on fresh seeds, the config gap is real in both directions and the
+honest conclusion is that this agent has reached the ceiling its own gate can
+measure.
