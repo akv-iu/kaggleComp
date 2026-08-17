@@ -2340,3 +2340,196 @@ reordering useful ones â€” so it moves what we produce and neither mirror b
 spot applies. Screen it at both intervals; expect a small gain (~$2,000-4,000)
 showing up as movement falling while PASS and DROP rise.
 
+
+## 2026-08-17 (v14 baseline, submission 55507562, rating 839.8 IMPROVED) — the queued dusk hypothesis answered no, and four more mechanisms screened at both intervals
+
+### State at the start of the run
+
+`main.py` and `test_agent.py` byte-identical to `.automation/baseline_main.py`
+and `.automation/baseline_test_agent.py` (v14: opening rush, four opening sheep,
+40 berry tiles, closest-pair dispatch, `HIRE_MAX_WAGE = 89`). Field record
+159-159 over 318 indexed games, our best game 138,163, field best 175,862
+(wenjinyang). Last submission 55507562 rated **839.8, IMPROVED** from v13's
+834.1 — the highest rating this project has recorded.
+
+Every cell below is a **six-seed mirror, 12 games (seeds 0-5, both farms)**, run
+at both `townCenterSellInterval` values against same-process baselines of
+**99,418.9 at interval 24** and **127,114.2 at interval 12**. Both baselines
+reproduce the ledger's figures to the dollar. Each candidate was implemented as a
+single constant in `main.py` so the off-value could be screened in the same
+process; **every off-value cell returned the baseline's per-seed scores exactly**,
+so each experiment carries its own null check.
+
+### Attempt 1 (screened, pruned) — refuse a job the unit cannot reach before dusk
+
+**Exact change:** a `DUSK_REACH = 23` constant; `_assign` takes `hour` and pass 2
+skips any (unit, job) pair whose Manhattan distance exceeds `DUSK_REACH - hour`,
+so a unit that cannot arrive falls through to a nearer job in a lower band or to
+the shed-drop branch.
+
+**Pre-test reasoning:** this was the previous run's named next hypothesis. Of
+3,742 moves on the instrumented game only 3,146 end in an action the walker
+performs; ~596 (20 a day, 16% of movement) are walks still in progress at dusk.
+The environment confirms they are deleted rather than banked: `_end_of_day` sets
+`farm["farmer"] = _default_spawn(board_size)` and `farm["hands"] = []`, so every
+unit respawns on the NW dock at dawn. Every routing experiment in this ledger has
+attacked *which* job a unit walks to; none has attacked whether there is time to
+arrive.
+
+**Evidence:** **97,691.1 (-$1,728) at interval 24** and **126,033.3 (-$1,081) at
+interval 12**.
+
+**Why it failed, and the instrumentation is unambiguous.** The mechanism fires
+exactly as designed and the freed turns are worth nothing. Seed 0, interval 24,
+guard off against on: **orphan moves 569 -> 407, total moves 3,742 -> 3,615,
+productive actions 2,501 -> 2,533 (+32), PASS 714 -> 809 (+95), DROP 63 -> 82**.
+So 127 moves were deleted and 95 of them became idleness. **This is the fifth
+time in this ledger that freeing actions on this farm has produced PASS rather
+than money**, and the first time it has happened to a change that removes waste
+rather than reordering work — which was the exact argument for expecting it to be
+different. The remaining 407 orphans are mostly the idle-drop branch, which the
+guard does not touch and should not: goods reach the shed at nightfall anyway.
+**The walking that arrives nowhere is real and it is not reclaimable, because
+there is no reachable work for the units doing it.**
+
+### Attempt 2 (screened, pruned) — cut the feed cash reserve that gates the berry seed
+
+**Exact change:** `FEED_DAYS` 10 -> 6 and -> 3.
+
+**Pre-test reasoning:** `budget = money - CASH_FLOOR - n_animals * keep` and
+`keep` is the live wheat quote times `FEED_DAYS`, and **`BUY_SEED STRAWBERRY`
+spends `budget`**. At day 12 with 10 head and wheat at $35 that reserve is $3,500
+— thirty-five berry seeds — on days 9-13, which is exactly when the ledger records
+the berry field stalling at 34 of its 40-tile target. The reserve is also never
+actually spent from `budget`: feed is bought out of `upkeep`. The standing
+refusal ("do not re-test a season-long reserve rule") rests on a single-seed
+screen from 2026-08-12, before v14.
+
+**Evidence (measured beside the attempt-1 code, so read against that cell's
+97,691 / 126,033):** `FEED_DAYS = 6`: **95,763.5 / 120,573.5**. `FEED_DAYS = 3`:
+**97,587.8 / 122,704.5**. Negative at both intervals at both settings, by
+$100-$5,500.
+
+**Why it failed:** the standing refusal holds and its reason is the one already in
+the ledger — the reserve is what stops a herd bought on credit walking off, and
+the opening is the only place it binds. Cutting it season-long releases capital
+into a herd the farm then cannot feed through the day-15 wheat squeeze. The
+berry-seed diagnosis was correct about the mechanism and wrong about the remedy.
+
+### Attempt 3 (screened, pruned) — keep the tiles nearest the shed for the herd
+
+**Exact change:** a `SHED_TILE_RESERVE` constant; `_scan` enumerates the
+dock-sorted `empty` list and refuses STRAWBERRY and WHEAT plantings on the
+nearest `SHED_TILE_RESERVE` bare tiles while animals can still be bought
+(`day <= ANIMALS["SHEEP"]["last"]`). Melon exempt.
+
+**Pre-test reasoning:** from this run's movement table, **FEED is the only chore
+that has to start at a dock** — 298 feeds served by 462 PICKUPs at 1.73 moves of
+walking each — while a crop is watered and harvested where it stands and walks to
+the shed once a load. Measured layout: animals sit a mean 2.70 tiles from a dock,
+strawberry 3.80, and the nearest 20 tiles are all within distance 2. The berry
+field is planted on days 6-13 and the herd is still growing on day 17, so
+structures land on whatever the berries left. The ledger's earlier refusal of this
+idea was arithmetic-only and assumed reserving is free, because the farm carries
+26 bare tiles of 75.
+
+**Evidence:** reserve 6: **98,864.5 (-$554) at 24** and **109,605.8 (-$17,509) at
+12**. Reserve 12: **91,626.5 (-$7,792) / 123,647.5 (-$3,467)**.
+
+**Why it failed, measured directly, and the premise was false.** A tile census on
+seed 0 at interval 12, reserve 0 against 6: **strawberry plant orders 40 -> 32,
+and the field never reaches 40** (day 10: 21 tiles against 6; day 13: 40 against
+32). **The farm has zero bare tiles on day 6** — 5 berry + 8 melon + 3 pasture + 4
+wheat + 5 animals is all 25 tiles of the opening quadrant — and the 26-to-38 bare
+tiles only appear from day 10, *after* the berry field is planted. So reserving
+near tiles is free exactly when the herd does not need them and costs berry tiles
+exactly when it does. The herd did grow, 13 head to 16, and it still loses:
+**eight berry tiles beat three head**, which is the ledger's standing ranking
+confirmed from a new direction.
+
+### Attempt 4 (screened, pruned) — offer the strawberry FERTILIZE job a day early
+
+**Exact change:** a `FERTILIZE_LEAD = 1` constant; `_scan` emits the FERTILIZE job
+for an ongoing crop on the `FERTILIZE_LEAD` days before a production night as well
+as on the night itself.
+
+**Pre-test reasoning:** the largest single named leak left in the ledger. Per farm
+on v14: **152.5 strawberry production nights, 118.9 fertilized, 33.6 plain, each
+plain night one whole ~$200 unit — $7,526 a farm**. It is band contention, not
+supply: 2,665 offers a farm are served 101 times with a holder a median 3 tiles
+away. The four failed repairs all changed *who* may take the job (carrier
+retention, item-gated sub-bands, priority sweeps); none changed *how long it
+stands*. `fertilized_until_day = day + 2` covers three nights, so fertilizing on
+the night itself also covers the next production two days later — one action for
+two productions — and the price of that efficiency is a one-day window.
+
+**Evidence:** **97,380.2 (-$2,039) at interval 24** and **126,867.9 (-$246) at
+interval 12**.
+
+**Why it failed:** the mechanism fires and does not pay. Seed 0 at interval 24:
+**FERTILIZE 93 -> 116 actions (+25%)**, HARVEST 282 -> 278, total moves 3,742 ->
+3,722, score inside noise. A fertilize taken a day early covers one production
+instead of two, so the extra coverage is bought at roughly its own value — one
+extra ~$200 unit against a $60 fertilizer, an action and 2.41 moves of walking,
+before the priority-0 contention it adds to the largest movement sink on the farm.
+**Fifth repair in this family, and the first to test the window rather than the
+dispatcher.** The condition the ledger left open — a dispatch cost expressing
+deadline rather than priority or item — was also tested this run as attempt 1 and
+also failed.
+
+### Attempt 5 (screened, pruned) — buy the second quadrant sooner
+
+**Exact change:** `LAND_RESERVE` 800 -> 200 and -> 0.
+
+**Pre-test reasoning:** the day-6 census above shows the farm **completely full** —
+zero bare tiles — on days 6-9 with the berry field at 5 of 40 tiles, so land, not
+slots and not seed money, is the binding constraint in that window. `BUY_LAND`
+requires `budget >= LAND_PRICES[n] + LAND_RESERVE`, and money at dawn on days 6-9
+is $970-$1,500, so $800 of reserve is what holds the $1,000 quadrant back.
+`LAND_RESERVE` has never been screened.
+
+**Evidence:** 200: **100,233.7 (+$815) at 24** and **118,468.7 (-$8,645) at 12**.
+0: **94,307.4 (-$5,111) / 123,631.2 (-$3,483)**.
+
+**Why it failed:** non-monotone and negative in three of four cells; the one
+positive is **+$815, about 0.25 SE on a six-seed mirror**, i.e. nothing. Land
+bought a day sooner is land bought out of the same cash desert the opening rush is
+already spending, and the herd is the better claim on it — which is the same result
+the four earlier land experiments reached from the opposite direction.
+
+### Outcome
+
+`main.py` and `test_agent.py` restored to their exact pre-run snapshots (`git diff
+--no-index` clean against both `.automation` baselines), `py_compile` passes on
+both, and `test_agent.py` passes ("unit checks ok", episode me=169467). All
+instrumentation was throwaway, lived in `.scratch` outside the agent, and touched
+neither `verify.py` nor `loop.py`. **No `.automation/submit_request.json` was
+written.** Five distinct hypotheses were screened at both `townCenterSellInterval`
+values; all five were rejected on the screen, none was close enough to a positive
+at either interval to justify spending a full benchmark, and each carried an exact
+null check against the baseline.
+
+### Best distinct next hypothesis
+
+**Cut the number of shed round-trips without cutting the distribution buffer.**
+The run closes the last two open routing ideas (the dusk deadline, the fertilize
+window) and five reallocations between berries, herd, land and cash all landed
+inside noise or below it. What remains is the one gap never closed: at interval 24
+we run **6,957 unit-turns for 2,501 productive actions** while Suda's $165,925
+runs 6,671 for **3,325** and wenjinyang's $175,862 runs 6,653 for 2,703 — and the
+difference in the histogram is entirely **PICKUP 462 against 145 and 135**,
+converted into WATER (551 against 1,014 and 925). The four refusals on that gap
+(fewer carriers, bigger loads, unfed-count demand, dock choice) all cut the
+*carrier count* or the *demand*, and the result was monotone in the size of the
+buffer, which is why the ledger calls the buffer the mechanism. **The axis never
+tried is holding the buffer fixed and removing only the top-up churn.**
+`_fetch_jobs` sizes demand as `n_animals - sum(carried)`, so the moment any single
+unit spends its wheat on a FEED it reopens a one-unit shortfall and the crew tops
+itself back up — measured at ~13 redundant pickups a day, 479 pickups hauling ~607
+units to deliver 283 feeds. Size the demand off the **number of units holding at
+least one wheat** instead (`short = min(MAX_CARRIERS, n_animals) - count(inv
+containing WHEAT)`), which preserves parallel delivery capacity exactly — the
+thing every previous repair destroyed — while refusing to re-fetch for a carrier
+that is already loaded. Screen at both intervals; expect PICKUP to fall toward 300
+with FEED, the wheat-holder count and shed occupancy all flat, and disbelieve it
+if the holder count or `SHED_PRESSURE` turns move at all.

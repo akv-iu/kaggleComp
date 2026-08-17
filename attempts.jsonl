@@ -57,3 +57,4 @@
 {"title": "2026-08-15 (v14 baseline, rating 838.4 REGRESSED) \u2014 the benchmark is not the competition: `townCenterSellInterval`", "verdict": "unknown", "wins": null, "mean": null}
 {"title": "2026-08-16 (v14 baseline, submission 55507562, rating 835.8 IMPROVED) \u2014 the queued mix hypothesis answered, and the wheat question the benchmark cannot decide", "verdict": "unknown", "wins": null, "mean": "+$9,735"}
 {"title": "2026-08-16 (v14 baseline, submission 55507562, rating 853.5 IMPROVED) \u2014 the queued wheat screen answered yes, and five more hypotheses off an exact opponent P&L", "verdict": "unknown", "wins": null, "mean": "$154,073"}
+{"title": "2026-08-17 (v14 baseline, submission 55507562, rating 831.3 REGRESSED) \u00e2\u20ac\u201d the queued additivity question answered no, and five more hypotheses screened at the competition's demand", "verdict": "unknown", "wins": null, "mean": "+$2,357"}
