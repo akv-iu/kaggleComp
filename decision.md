@@ -2050,3 +2050,293 @@ interval-24 optimum is a *different agent* and not a patch to this one. If they
 do add (~+$15k a farm), the case for shipping on the 9/16 ratio v13 shipped on
 becomes hard to refuse, and the right ask is a gate that runs at
 `townCenterSellInterval: 24`.
+
+## 2026-08-17 (v14 baseline, submission 55507562, rating 831.3 REGRESSED) â€” the queued additivity question answered no, and five more hypotheses screened at the competition's demand
+
+### State at the start of the run
+
+`main.py` and `test_agent.py` byte-identical to `.automation/baseline_main.py`
+and `.automation/baseline_test_agent.py` (v14: opening rush, four opening sheep,
+40 berry tiles, closest-pair dispatch, `HIRE_MAX_WAGE = 89`). Field record 157-159
+over 316 indexed games, our best game 138,163, field best 175,862. Last
+submission 55507562 rated **831.3, REGRESSED** from v13's 836.0.
+
+Every cell below is a **six-seed mirror, 12 games (seeds 0-5, both farms)**, run
+at both `townCenterSellInterval` values, against same-process baselines of
+**99,418.9 at interval 24** and **127,114.2 at interval 12**. The interval-24
+baseline was re-measured this run and reproduces the ledger's number to the
+dollar, so cross-process drift is not in play here.
+
+### Attempt 1 (screened, pruned) â€” are the two config-gap changes additive?
+
+**Exact change:** `WHEAT_PER_ANIMAL` 0.75 -> 0.5, `ENDGAME_WHEAT_TILES` 10 -> 0,
+`RUSH_SHEEP` 4 -> 2, together. Seeds 0-17, 36 games a cell.
+
+**Pre-test reasoning:** this was the previous run's named next hypothesis. Each
+change alone is worth **+$4,557 and +$5,698 a farm at interval 24** and negative
+at interval 12, and the gate cannot express either. If they add to ~+$15k the
+case for shipping on a 9/16 ratio becomes hard to refuse; if they do not, the
+interval-24 optimum is a different agent rather than a patch to this one.
+
+**Evidence (18 seeds, 36 games a cell; pooled baselines 104,561 at 24 and
+124,335 at 12):**
+
+| | interval 24 | interval 12 |
+|---|---|---|
+| seeds 0-5 | 101,775.8 (+$2,357) | 126,150.8 (-$963) |
+| seeds 6-17 | 107,595.1 (+$463) | 120,964.0 (-$1,981) |
+| pooled 0-17 | **105,655 (+$1,094)** | **122,693 (-$1,642)** |
+
+**Why it failed:** **strongly sub-additive â€” the pair is worth less than either
+half.** +$1,094 at interval 24 is ~0.6 SE on an 18-seed mirror, i.e. nothing,
+against +$4,557 and +$5,698 measured separately. Both changes cut the same thing
+from two ends: `RUSH_SHEEP = 2` removes the wool the wheat field's feed was
+supporting, and the wheat cut replaces grown feed with bought feed for a herd the
+sheep cut has already shrunk. **The honest conclusion is the one the previous run
+named as the alternative: the interval-24 optimum is a different agent, and there
+is no additive stack of config-gap constants to ship.** This closes the
+config-gap thread as a *submission* route; the individual measurements stand.
+
+### The interval-24 depth table, measured this run, and it corrects the ledger
+
+Market depth (`I0 - inventory`) and price at dawn, baseline mirror, seed 0, at
+**`townCenterSellInterval: 24`** â€” every depth number previously in `memory.md`
+was measured at 12.
+
+| day | WHEAT | STRAWBERRY | MILK | WOOL | EGG | MELON | TOMATO | FERTILIZER |
+|---|---|---|---|---|---|---|---|---|
+| 12 | 102/$35 | 86/$198 | 32/$209 | -36/$125 | 32/$52 | -34/$238 | 14/$62 | -92/$82 |
+| 17 | 295/$42 | 164/$228 | 48/$220 | **-60/$1** | 98/$56 | -72/$198 | 36/$64 | -198/$60 |
+| 20 | 439/$46 | 185/$234 | 48/$220 | **-60/$1** | 128/$58 | -66/$206 | 72/$69 | -253/$49 |
+| 29 | 797/$53 | 116/$210 | 74/$235 | -38/$116 | 232/$64 | -78/$189 | 216/$86 | -365/$27 |
+
+The same seed at interval 12 for contrast: WOOL ends **+56/$235** and MILK
+**209/$286**, while EGG is **224/$63** â€” essentially identical at both.
+
+**What this settles.** Per animal-day at the competition's demand: **cow 1.5 milk
+x $223 = $335, goose 2 egg x $64 = $128, sheep 1.33 wool x $57 = $76.** The
+ledger's ranking (COW $259, SHEEP $228, GOOSE $104) is an interval-12 ranking and
+**the sheep/goose order inverts at 24**, because wool is the only `sq` good and
+sits 36-60 units *above* `I0` from day 12, floored at **$1 for eight consecutive
+days (17-24)**, while egg's `linear` amp of $0.06 a unit makes it the flattest
+market in the game and nearly immune to the town-centre halving. Realised revenue
+on that game: strawberry 205u/$46,051, milk 150u/$33,498, melon 72u/$15,901,
+fertilizer 197u/$11,877, **wool 160u/$9,125 ($57 a unit)**, wheat 117u/$5,125,
+egg 30u/$1,807, against $8,982 of bought feed.
+
+### Attempt 2 (screened, pruned) â€” plant tomato, the one market nobody enters
+
+**Exact change:** `TOMATO_TILES` / `TOMATO_FIRST_DAY` constants, a
+`PLANT TOMATO` branch in the `_scan` empty-tile loop, a `BUY_SEED TOMATO` order
+in `_market`, and `SELL_RULES["TOMATO"] = (2, 60)`.
+
+**Pre-test reasoning:** no replay in the corpus plants a single tomato, so its
+inventory only falls; it is `linear` below `I0` with amp **$0.12 a unit** against
+strawberry's `linear`/1.60. Four productions on four *consecutive* days from age
+7, so one `FERTILIZE` (three days) covers three of them, and the tile finishes in
+11 days against strawberry's 16 â€” which is what makes it fit `_plantable`'s hole:
+no berry can be planted after day 13, and the field decays from 39 tiles to 20 by
+day 27.
+
+**Evidence:**
+
+| variant | interval 24 | interval 12 |
+|---|---|---|
+| 12 tiles, last in the plant queue | 96,698.6 (-$2,720) | 124,277.9 (-$2,836) |
+| 12 tiles, ahead of wheat | 95,630.5 (-$3,788) | 123,966.2 (-$3,148) |
+| 6 tiles, ahead of wheat | 96,924.2 (-$2,495) | â€” |
+
+**Why it failed, and it took two measurements to see it.** The first variant
+planted **one tile all game and stranded 11 seeds ($550)**: `slots` is *zero*
+from day 14 and the wheat branch, which ran first, took every free slot. Put
+ahead of wheat the crop executes â€” 9-11 tiles, wheat driven to 0 tiles on days
+16-21 â€” and the P&L on seed 0 at interval 24 prices the failure exactly:
+**TOMATO 52 units at $73 = $3,813** against **STRAWBERRY 205 -> 166 units
+(-$8,717)** and **`BUY_PRODUCT WHEAT` $8,982 -> $11,626**. Two errors, both
+instructive. (a) The tile yields **4.7 units, not 8** â€” tomato needs watering on
+four *consecutive* days to collect its productions, which makes it the worst
+possible addition to a priority-0 `WATER` queue that is already the largest
+movement sink on the farm (551 actions, 742 moves). (b) The $103 quote came from
+the ledger's interval-12 depth table; **at interval 24 tomato is only ~108 units
+below `I0`, and two farms selling ~52 each puts it straight back to base.** That
+is exactly the mistake the top entry of `memory.md` warns about, made one screen
+after reading it.
+
+### Attempt 3 (screened, pruned) â€” raise the goose share, from the interval-24 curves
+
+**Exact change:** `HERD` 0.10/0.50/0.40 -> 0.30/0.50/0.20 and -> 0.20/0.50/0.30.
+`RUSH_SHEEP = 4` held.
+
+**Pre-test reasoning:** all six previous mix refusals moved goose to **zero** or
+left it at 0.10; **nobody has ever raised it.** At interval 24 a goose is worth
+$128 an animal-day against a sheep's $76, it costs $200 less, and it produces
+from day 4 rather than day 6 â€” three arguments that all point the same way in
+the cash desert. Egg is also the flattest curve in the game, so the marginal head
+does not cannibalise the way a cow does against milk's `sqrt`.
+
+**Evidence:** 0.30/0.50/0.20: **100,272.6 (+$854) / 119,685.6 (-$7,429)**.
+0.20/0.50/0.30: **100,435.0 (+$1,016) / 123,573.2 (-$3,541)**.
+
+**Why it failed:** the sign is exactly as predicted at both intervals â€” positive
+at 24, negative at 12 â€” so this is the config gap for the fourth time. But the
+gain at 24 is **~0.3 SE and worthless**, because **egg saturates too, just more
+slowly**: three geese a farm is ~180 combined units, which takes egg from 232
+below `I0` to ~52 and the price from $64 to ~$53, and $106 a day against a
+sheep's $76 is a $30/day edge over ~22 days, ~$2,000 a farm before the extra
+`slots` and feed. **Seventh mix refusal, and the first that raised goose.** The
+mix is now settled at both intervals, not just at 12.
+
+### Attempt 4 (screened, pruned) â€” stop buying the fourth quadrant
+
+**Exact change:** `LAND_PRICES` [1000, 2000, 4000] -> [1000, 2000] (three
+quadrants), and -> [1000] (two).
+
+**Pre-test reasoning:** both $150k+ leaders in the corpus run **three quadrants
+and two land buys** ($3,000 against our nominal $7,000), and both carry **0-3
+bare tiles all season** where we carry 12-28. $4,000 unspent on day 12-14 is 40
+berry seeds, and the census shows the berry field stalling at 34 of its 40-tile
+target on exactly those days for want of budget.
+
+**Evidence:** three quadrants: **99,249.8 (-$169) / 128,320.0 (+$1,206)**. Two
+quadrants: **94,903.4 (-$4,516)** at interval 24.
+
+**Why it failed, and the premise was wrong.** The three-quadrant cap is
+**bit-identical to baseline on four of six seeds at interval 24** â€” v14 *already*
+usually stops at three quadrants, because `LAND_LAST_DAY = 18` and the
+`load < (MAX_HANDS + 1) * SLOTS_PER_UNIT` gate bite before the fourth purchase
+does. The census confirms it: seed 0 holds exactly **75 tiles from day 12 to the
+last bell**. So the "we buy 25 tiles and leave 26 bare" reading was wrong â€” it is
+**26 bare of 75, not of 100**, and the fourth quadrant is not the waste. The
+two-quadrant cap loses properly, so the third quadrant is load-bearing. A
+candidate that ties on four seeds of six cannot reach 7/8 in any case.
+
+### Attempt 5 (screened, pruned) â€” the plant capacity brake, in both directions
+
+**Exact change:** `PLANT_SLOTS` 2 -> 1 (alone and beside
+`ENDGAME_WHEAT_TILES = 40`) and 2 -> 3.
+
+**Pre-test reasoning:** reconstructing the two best games in the corpus,
+**wenjinyang ($175,862) carries 61 plants + 14 animals and Suda ($165,925) 60
+plants + 13 animals, both on 75 tiles with ~10 hands, and neither ever holds more
+than 3 bare tiles.** We carry **45 plants + 14 animals on the same 75 tiles with
+12 hands, and `slots` is pinned at exactly 0 from day 14** â€” 45x2 + 14x9 = 216 =
+12 x `SLOTS_PER_UNIT`. Our capacity model looked ~35% tighter than what the field
+demonstrably sustains, and `PLANT_SLOTS` is the one knob that releases it without
+touching `load`, hiring, the herd or the market. Both leaders then convert the
+dying berry field to wheat (7 -> 40 tiles for wenjinyang, 12 -> 57 for Suda), and
+the ledger's day-20 refusal of that was **-$483 of interval-12 mirror mean, well
+inside its own stated $1,000-$3,000 noise floor**.
+
+**Evidence:** `PLANT_SLOTS = 1`: **88,671.9 (-$10,747) / 122,329.0 (-$4,785)**.
+`PLANT_SLOTS = 1` + `ENDGAME_WHEAT_TILES = 40`: **89,836.8 (-$9,582)** at
+interval 24. `PLANT_SLOTS = 3`: **91,050.2 (-$8,369) / 115,814.2 (-$11,300)**.
+
+**Why it failed, and this is the run's most useful null.** Both directions lose
+about $10,000, so **`PLANT_SLOTS = 2` is a sharp optimum rather than a guess** â€”
+the previous evidence for it was a single -$1,094 screen, inside noise. The brake
+is not a mistake in the model: it is the farm refusing tiles it cannot water on
+their production night, which is precisely the mechanism that killed the tomato
+above and the four late-wheat attempts before it. **The leaders' tile count is
+not available to us at our movement cost, and the route to it is not more tiles.**
+Eighth time in this ledger that relaxing a correctly-measured constraint has lost.
+
+### The movement table, measured this run, because it names what the walking is
+
+Attributing every walk to the action it ends in, baseline mirror, seed 0,
+interval 24 (6,957 unit-turns, **3,742 moves = 53.8%**, 714 PASS, 2,501
+productive):
+
+| verb | actions | moves walking to it | moves/action |
+|---|---|---|---|
+| WATER | 551 | 742 | 1.35 |
+| FEED | 298 | 516 | 1.73 |
+| HARVEST | 282 | 397 | 1.41 |
+| PICKUP | 462 | 320 | 0.69 |
+| DROP | 63 | 256 | 4.06 |
+| COLLECT_FERTILIZER | 305 | 246 | 0.81 |
+| FERTILIZE | 93 | 224 | 2.41 |
+| CARE | 302 | 123 | 0.41 |
+
+Against wenjinyang's $175,862 (6,653 unit-turns, **2,940 moves = 44.2%**, 1,010
+PASS, 2,703 productive) and Suda's $165,925 (6,671 unit-turns, **2,876 moves =
+43.1%**, 470 PASS, **3,325 productive against our 2,501**): their whole advantage
+in the action histogram is **PICKUP 145 and 135 against our 462**, converted into
+WATER (925 and 1,014 against our 551), HARVEST (360/390 v 282) and PLANT
+(174/197 v 84). Discount Suda's CARE 795, of which ~420 are same-day no-ops, and
+the productive gap is still ~15%. That is the feed-logistics gap the ledger has
+already measured and refused from four directions. **CARE at 0.41
+moves and COLLECT at 0.81 show the stand-and-finish pass working exactly as
+designed; the walking is in WATER, FEED and HARVEST â€” in the size of the farm,
+not in the dispatcher.**
+
+### Attempt 6 (BENCHMARKED) â€” raise the shed-pressure trigger
+
+**Exact change:** `SHED_PRESSURE` 70 -> 85.
+
+**Pre-test reasoning:** the pressure branch sells at `cap * 4` and **ignores
+every floor**, and the ledger already prices it â€” 9 pressure turns against 16 was
+**$29,775 of wool against $17,391 on the same 144 units**. The loss it insures
+against is measured and tiny: patching `_drop_inventories_to_shed` across a whole
+v14 game counts **four units discarded, all milk**, even on days the shed reads
+100 of 100 at dawn. So the trigger is priced for an overflow that does not
+happen, and the threshold itself had never been screened in either direction â€”
+only the wool floor it interacts with. This is not the rejected late-floor
+withholding: the normal drip (cap 2 a turn, 48 a day) is untouched, and only the
+emergency floor-ignoring dump moves.
+
+**Screen (six-seed mirror):** **98,714.6 (-$704) at interval 24** and
+**129,391.1 (+$2,277) at interval 12, positive on five of six seeds**
+(-512, +1,102, +792, +34, +9,422, +2,824). The only candidate this run with a
+consistent positive at the gate's own configuration, so it was carried to the
+full benchmark.
+
+**Evidence (4 seeds, both seats, `verify.py .automation/baseline_main.py 4`):**
+**1/8 wins, mean -$1,158.4, mirror +$353.8**, every status DONE. Per pairing
+(candidate - baseline): seed 0 **-1,547 / -1,637**, seed 1 **-1,794 / -1,816**,
+seed 2 **+1,409 / -1,838**, seed 3 **-1,182 / -862**.
+
+**Why it failed, and the ledger's own diagnostic names it.** Head-to-head
+**down** and mirror **up** is signature two: **mutual restraint.** Raising the
+trigger keeps goods off the market in *both* farms of a mirror, both get the
+calmer price, and the change credits itself with revenue that only exists because
+the opponent restrained as well. Against a baseline that keeps dumping we hold
+while it sells and collect nothing for it â€” which is why seven of eight pairings
+are negative by a strikingly uniform $860-$1,840. Note also how badly the
+six-seed screen mis-set expectations: **+$2,277 over seeds 0-5, but +$354 over
+the gate's seeds 0-3**, almost all of the screen's gain living in seeds 4 and 5.
+The screen was not wrong, it was answering a different question, and the mirror
+gate reproduced the seeds-0-3 figure to within a dollar. **A consistent small
+positive on a mirror is not evidence until you have checked the head-to-head sign
+on the same seeds.**
+
+### Outcome
+
+`main.py` and `test_agent.py` restored to their exact pre-run snapshots (`git
+diff --no-index` clean against both `.automation` baselines), `py_compile` passes
+on both, and `test_agent.py` passes ("unit checks ok", episode me=169467). All
+instrumentation was throwaway, lived in `.scratch` outside the agent, and touched
+neither `verify.py` nor `loop.py`. **No `.automation/submit_request.json` was
+written.** Six distinct hypotheses were screened at both `townCenterSellInterval`
+values; five were rejected on the screen and the sixth was carried to a full
+benchmark and rejected at 1/8, -$1,158, mirror +$354.
+
+### Best distinct next hypothesis
+
+**Stop looking for tiles and look at the 596 moves a season that arrive
+nowhere.** Of 3,742 moves on the instrumented game, **3,146 are attributable to
+an action the walker eventually performs and ~596 are not** â€” units still walking
+at dusk toward a job the day ends before they reach, ~20 a day, 16% of all
+movement and about 8% of the farm's unit-turns. Every routing experiment in this
+ledger (persistent claims, dock choice, blended priority cost, band partition,
+path tie-break) has attacked *which* job a unit walks to; **none has attacked
+whether there is time to arrive.** The narrow testable change: in `_assign` pass
+2, refuse a job whose Manhattan distance exceeds the turns left in the day
+(`24 - hour`), so a unit that cannot arrive is offered the nearest job it *can*
+finish, or falls through to the shed-drop branch and banks its produce for that
+evening's sale. This is a **deadline** term, which is the one condition the
+ledger's four failed fertilize-contention repairs explicitly left open, and
+unlike every other routing change it removes wasted actions rather than
+reordering useful ones â€” so it moves what we produce and neither mirror blind
+spot applies. Screen it at both intervals; expect a small gain (~$2,000-4,000)
+showing up as movement falling while PASS and DROP rise.
+
