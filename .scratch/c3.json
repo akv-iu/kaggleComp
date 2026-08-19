@@ -1,0 +1,8 @@
+[
+ {"label":"harv-24","path":"D:/Projects/kaggleComp/.scratch/cand_harv.py","lo":0,"hi":12,"interval":24},
+ {"label":"harv-12","path":"D:/Projects/kaggleComp/.scratch/cand_harv.py","lo":0,"hi":12,"interval":12},
+ {"label":"spu20-24","over":{"SLOTS_PER_UNIT":20},"lo":0,"hi":12,"interval":24},
+ {"label":"spu20-12","over":{"SLOTS_PER_UNIT":20},"lo":0,"hi":12,"interval":12},
+ {"label":"spu16-24","over":{"SLOTS_PER_UNIT":16},"lo":0,"hi":12,"interval":24},
+ {"label":"spu16-12","over":{"SLOTS_PER_UNIT":16},"lo":0,"hi":12,"interval":12}
+]

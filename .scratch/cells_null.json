@@ -1,0 +1,4 @@
+[
+ {"label":"off-24","over":{"DUSK_REACH":99},"lo":0,"hi":2,"interval":24},
+ {"label":"basefile-24","over":{},"lo":0,"hi":2,"interval":24,"path":".automation/baseline_main.py"}
+]

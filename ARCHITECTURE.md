@@ -1,106 +1,124 @@
-# How the loop works
+# Evidence-first optimization loop
 
-A Windows scheduled task wakes every four hours, pulls what the public field did
-to our live agent, hands the losses to Claude to form and test one hypothesis,
-and ships the result only if an independently re-run benchmark agrees. Nobody has
-to be at the keyboard. This file describes the machinery as of v11
-(2026-08-12); `memory.md` describes what it has *learned*.
+The scheduled job is deliberately cheap. Every four hours it polls Kaggle,
+downloads unseen replays, rebuilds compact evidence, persists status, and sends a
+Windows notification. It cannot invoke Claude, modify `main.py`, benchmark, or
+submit.
 
-## The cycle
+## Commands
 
-```mermaid
-flowchart TD
-    T["Task Scheduler<br/>every 4h, 3h limit"] --> W["automation.ps1<br/>the wrapper"]
-    W --> R{"crash marker<br/>from last run?"}
-    R -->|yes| RB["restore main.py<br/>from snapshot"] --> S
-    R -->|no| S["Kaggle: submissions + episodes<br/>rating trend, UTC budget"]
-    S --> D["download unseen replays"]
-    D --> I["loop.py index / select / prune<br/>3 worst losses, 2 field-best, 2 near-misses"]
-    I --> C["freeze snapshots:<br/>main.py, test_agent.py, verify.py, both ledgers"]
-    C --> A["claude -p --model opus --effort high<br/>reads automation_prompt.md"]
-    A --> Q{"submit_request.json<br/>approved?"}
-    Q -->|no| X["Reject: roll back main.py,<br/>commit ledgers only"]
-    Q -->|yes| G["wrapper re-runs the frozen verify.py itself"]
-    G --> G2{"head-to-head gate<br/>AND mirror gate"}
-    G2 -->|fail| X
-    G2 -->|pass| B{"UTC budget left?"}
-    B -->|no| H["hold candidate, ship after reset"]
-    B -->|yes| P["kaggle submit + git commit/push"]
+```powershell
+# Normally run only by Task Scheduler. -DryRun uses cached Kaggle responses.
+.\automation.ps1 -Poll
+
+# First check /usage yourself. This consumes the current evidence exactly once.
+.\automation.ps1 -ArmPlan -ConfirmUsageAbove50
+
+# Review .automation/proposals/<id>.md before choosing one of these.
+.\automation.ps1 -ApprovePlan <id>
+.\automation.ps1 -RejectPlan <id>
+
+# A passing local candidate still cannot submit without this separate command.
+.\automation.ps1 -SubmitCandidate <id>
+
+# Find and update the existing action-path match, or create one current-user task.
+.\automation.ps1 -InstallTask
 ```
 
-## Phases, and who owns each
+`-NoNotify` suppresses toasts for diagnostics. It never suppresses durable state.
 
-| Phase | Owner | What actually happens |
-|---|---|---|
-| Schedule | Task Scheduler | `Kaggriculture Replay Optimizer`, every 4h from 16:00, `PT3H` limit, hidden PowerShell. A `Local\` mutex means two runs can never overlap. |
-| Crash recovery | `automation.ps1` | `.automation/run_in_flight` is dropped in a `finally`, so it survives only a *killed* run. Finding it means the previous run died mid-edit, and `main.py` is restored from its snapshot before anything else. |
-| Field state | `automation.ps1` | `kaggle competitions submissions/episodes`. The daily budget is counted from Kaggle's own UTC timestamps, not a local tally. Rating trend is logged every run. |
-| Evidence | `automation.ps1` + `loop.py` | New replays are downloaded, indexed from their first 64KB (scores and team names serialise before `steps`, so a 17MB file is never parsed), then pruned to a 250MB corpus. |
-| Selection | `loop.py select` | 3 worst losses + 2 highest-scoring opponent games + 2 near-misses. Deliberately not "all of them": averaging 20 wins in hid that the field's best game is twice ours. |
-| Analysis | `claude -p` | Non-interactive, `bypassPermissions`, web tools denied. Reads `automation_prompt.md`, `memory.md`, `attempts.jsonl`, `run_context.json`, the selected replays. Edits `main.py` in place. |
-| Verdict | `automation.ps1` | Re-runs the *frozen* `verify.py` against the *frozen* baseline. The agent's own reported numbers are never trusted. |
-| Ship | `automation.ps1` | `kaggle competitions submit`, then `git add/commit/push` of code + ledgers. Over budget → the candidate is held for the UTC reset. |
+## State flow
 
-## The two gates
+```mermaid
+flowchart LR
+    P["4-hour poll"] --> E{"new actionable evidence?"}
+    E -->|no| I[IDLE]
+    E -->|yes| R[EVIDENCE_READY]
+    R -->|manual arm| M[PLAN_RUNNING]
+    M -->|invalid or capped| C[CAP_REACHED]
+    M -->|wait| X[REJECTED]
+    M -->|one patch| A[AWAITING_REVIEW]
+    A -->|manual reject| X
+    A -->|manual approve| V[EVALUATING]
+    V -->|fail and restore| X
+    V -->|pass| Q[READY_TO_SUBMIT]
+    Q -->|manual reject and restore| X
+    Q -->|manual submit| S[SUBMITTED]
+    Q -->|upload/confirmation fail| F[SUBMIT_FAILED]
+    F -->|retry separate approval| Q
+    F -->|manual reject and restore| X
+```
 
-Both are applied by the wrapper to numbers it measured itself.
+Only `EVIDENCE_READY` can start a planning run. Its fingerprint is marked
+consumed before Claude starts, so malformed output or a turn cap cannot loop on
+the same packet. `AWAITING_REVIEW`, `EVALUATING`, `READY_TO_SUBMIT`, and
+`SUBMIT_FAILED` block all
+later planning; newer games queue behind the unresolved item.
 
-- **Head-to-head** — `verify.py` at 4 seeds × 2 seats: ≥7/8 wins, mean final money
-  ≥ +$100, every status `DONE`.
-- **Mirror** — each agent plays *itself*; the candidate's mean must beat the
-  baseline's by ≥$500.
+## Token boundary
 
-The mirror exists because the head-to-head plays the candidate against a slower
-copy of itself, which pays for merely *acting sooner* on anything shared. v7 won
-7/8 at +$1,504, showed **+84** in the mirror, and lost 36 points of public
-rating. Production survives a mirror; racing does not.
+One manual arm sends only:
 
-Four more checks sit beside them: `main.py` must differ from its snapshot, both
-ledgers must have been updated, `py_compile` must pass, and `test_agent.py` must
-pass. Any failure calls `Reject`, which rolls the code back and commits the
-ledgers anyway — a rejected run is where most of the learning is.
+- current `main.py`;
+- `memory.md`, capped at 12 KB;
+- `.automation/evidence.json`, capped at 20 KB;
+- the compact read-only proposal instructions.
 
-## State, and what survives
+The whole input is capped at 80 KB (roughly 20,000 tokens). Claude runs Sonnet at
+medium effort, read-only, without session persistence, with structured output
+and at most six turns. It may return one hypothesis and one exact `main.py`
+patch, or say that evidence is insufficient. It never edits the workspace.
 
-| Artefact | Versioned | Regenerable | Purpose |
-|---|---|---|---|
-| `main.py` | yes | — | the agent |
-| `memory.md` | yes | no | curated ledger, read in full every run |
-| `decision.md` | yes | no | append-only archive, grepped not read |
-| `attempts.jsonl` | yes | yes, from `decision.md` | "has this been tried?" in one line each |
-| `replay_index.json` | **yes** | **no** | every episode ever scored; the raw replays behind it are deleted |
-| `replays/` | no | by re-download | ~17MB each, pruned to 250MB after every run |
-| `.automation/` | no | yes | state, snapshots, logs, `run_context.json`, `submit_request.json` |
+`decision.md` is a frozen historical archive and is absent from routine model
+context. `attempts.jsonl` is the authoritative machine-readable index, including
+all 108 imported top-level and nested historical attempts. New attempts retain
+their queued, approved, tested, rejected/ready, and submitted transition history.
 
-`replay_index.json` is the one artefact here that cannot be rebuilt from
-anything on disk — losing it costs a ~1.3GB re-download.
+## Evidence
 
-## Where it stands
+`loop.py` keeps at most three current-submission replay summaries: worst loss,
+closest loss, and highest opponent score. The packet also contains aggregate
+current and field records, one durable field ceiling, the observed competition
+configuration, the ordered candidate backlog, and attempt records relevant to
+wheat, shed/inventory pressure, and melon. Raw replays and the archive remain on
+disk for deliberate lookup but are not loaded by default.
 
-- v11 live at **803.6** (14 episodes, still moving); v10 719.6, v6 665.4.
-- Local mirror mean ~$114,800 a game; field best observed **$175,862**
-  (wenjinyang).
-- 41 experiments recorded in `attempts.jsonl`; 8 selected, the rest rejected
-  with their mechanism written down.
+The candidate backlog is fixed in this order and candidates are never combined:
 
-## What this loop cannot see
+1. wheat-field cut;
+2. shed pressure from shed plus carried inventory;
+3. twelve-melon opening without purchase-priority changes.
 
-1. **Self-play is not the field.** Both gates measure us against ourselves. They
-   caught v7's racing gain, but they cannot tell us what a farm we have never
-   played does. Every real jump — fertilizing wheat, strawberry at field scale,
-   the opening herd rush — came from reading a *replay of a loss*, not from the
-   benchmark.
-2. **Ratings converge slower than the loop runs.** A run is 4 hours; a rating
-   needs ~25-30 episodes to settle, and submitting retires an older agent. The
-   binding constraint on shipping is convergence, not the 5-a-day budget.
-3. **Kaggle auth is a silent single point of failure.** Every run opens with
-   `kaggle competitions submissions`; if the CLI's OAuth session has lapsed the
-   run throws on that first call and the whole four-hour cycle is lost with
-   nothing but an `ERROR:` line in `.automation/automation.log`. This happened at
-   2026-08-12 20:00. The OAuth access token in `~/.kaggle/credentials.json`
-   expires ~18h after each refresh; a static token in `~/.kaggle/access_token`
-   (or `KAGGLE_API_TOKEN`) does not expire and is what an unattended loop wants.
-4. **A rejected run still costs a cycle.** Three failed experiments per
-   invocation is the cap; after that the loop waits for new replay evidence.
-5. **Single-seed differences are noise.** Both farms trade into one market, so
-   any perturbation moves the whole price path. Four seeds screen; eight decide.
+## Evaluation and rollback
+
+`verify.py` mirrors observed competition behavior with a town-center sell
+interval of 24 and deterministic shop unlocks sampled with replacement. Every
+result records its evaluator/configuration fingerprint and both code hashes.
+
+Approval applies only the stored patch and only when `main.py` still matches the
+stored baseline hash. It then runs syntax checks, `test_agent.py`, a four-seed
+smoke screen (seeds 16–19), and twelve disjoint final seeds (0–11) across both
+seats. The final gate requires:
+
+- every status is `DONE`;
+- mirror improvement is at least $1,000;
+- median per-seed mirror delta is positive;
+- head-to-head mean is no worse than -$500.
+
+Any exception, crash, or failed gate restores the exact baseline. A kill during
+evaluation leaves an in-flight record; the next invocation restores the baseline
+before doing anything else. Exact historical calibration results and the seed
+sensitivity caveat are recorded in [`EVALUATOR_BACKTEST.md`](EVALUATOR_BACKTEST.md).
+
+## Durable files and notifications
+
+- `.automation/status.json`: current state, message, fingerprints, active IDs;
+- `.automation/state.json`: Kaggle submission/rating bookkeeping;
+- `.automation/evidence.json`: current compact evidence packet;
+- `.automation/proposals/<id>.md`: human review document;
+- `.automation/proposals/<id>.json`: exact machine state and transition history;
+- `.automation/candidates/<id>/`: baseline plus smoke/final results;
+- `.automation/automation.log`: notification and operational failures.
+
+Every poll sends a native Windows toast, including the no-action case. Toast
+failure is logged and cannot erase any status, evidence, plan, or result.

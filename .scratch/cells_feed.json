@@ -1,0 +1,6 @@
+[
+ {"label":"fd6-24","over":{"FEED_DAYS":6},"lo":0,"hi":6,"interval":24},
+ {"label":"fd3-24","over":{"FEED_DAYS":3},"lo":0,"hi":6,"interval":24},
+ {"label":"fd6-12","over":{"FEED_DAYS":6},"lo":0,"hi":6,"interval":12},
+ {"label":"fd3-12","over":{"FEED_DAYS":3},"lo":0,"hi":6,"interval":12}
+]

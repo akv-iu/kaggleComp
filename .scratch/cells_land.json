@@ -1,0 +1,6 @@
+[
+ {"label":"lr200-24","over":{"LAND_RESERVE":200},"lo":0,"hi":6,"interval":24},
+ {"label":"lr0-24","over":{"LAND_RESERVE":0},"lo":0,"hi":6,"interval":24},
+ {"label":"lr200-12","over":{"LAND_RESERVE":200},"lo":0,"hi":6,"interval":12},
+ {"label":"lr0-12","over":{"LAND_RESERVE":0},"lo":0,"hi":6,"interval":12}
+]

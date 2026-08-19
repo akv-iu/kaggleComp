@@ -1,334 +1,653 @@
-﻿param([switch]$DryRun)
+param(
+    [switch]$Poll,
+    [switch]$ArmPlan,
+    [switch]$ConfirmUsageAbove50,
+    [string]$ApprovePlan,
+    [string]$RejectPlan,
+    [string]$SubmitCandidate,
+    [switch]$InstallTask,
+    [switch]$DryRun,
+    [switch]$NoNotify
+)
 
 $ErrorActionPreference = "Stop"
-
 $workspace = Split-Path -Parent $MyInvocation.MyCommand.Path
 $runtime = Join-Path $workspace ".automation"
-$kaggle = Join-Path $workspace ".venv\Scripts\kaggle.exe"
+$proposalDir = Join-Path $runtime "proposals"
+$candidateDir = Join-Path $runtime "candidates"
 $python = Join-Path $workspace ".venv\Scripts\python.exe"
-$promptPath = Join-Path $workspace "automation_prompt.md"
+$kaggle = Join-Path $workspace ".venv\Scripts\kaggle.exe"
+$statusPath = Join-Path $runtime "status.json"
 $statePath = Join-Path $runtime "state.json"
+$evidencePath = Join-Path $runtime "evidence.json"
 $logPath = Join-Path $runtime "automation.log"
-# `*>>` writes UTF-16 while Add-Content writes UTF-8; mixing them in one file makes
-# it unreadable, so raw command transcripts get their own.
 $runLog = Join-Path $runtime "run_output.log"
-$requestPath = Join-Path $runtime "submit_request.json"
-$indexPath = Join-Path $workspace "replay_index.json"
-# Dropped by the `finally` below, so it only survives a run that was *killed*:
-# the task's execution time limit, a reboot, a lost logon session.
-$inFlightPath = Join-Path $runtime "run_in_flight"
-# Mirror gain below this is indistinguishable from a change that merely acts
-# sooner than a slower copy of itself. Calibrated on two submissions: v7 won the
-# head-to-head 7/8 at +$1,504, showed +84 in the mirror, and lost 36 points of
-# public rating; v8 showed +3,903. Raise it if a racing change ever slips past.
-$mirrorMin = 500
-$mutex = [Threading.Mutex]::new($false, "Local\KaggricultureReplayOptimizer")
+$inFlightPath = Join-Path $runtime "evaluation_in_flight.json"
+$evaluatorVersion = "competition-v2"
 
-# A run that crashed while holding the mutex leaves it abandoned, and WaitOne then
-# throws instead of returning false.
-try { $held = $mutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $held = $true }
-if (-not $held) { exit 0 }
+New-Item -ItemType Directory -Path $runtime, $proposalDir, $candidateDir -Force | Out-Null
+Set-Location -LiteralPath $workspace
 
-# Windows PowerShell 5.1 hands a JSON array back from ConvertFrom-Json as a single
-# object instead of enumerating it, so `@($json | ConvertFrom-Json)` yields a
-# one-element array *containing* the array. That silently turned the replay index
-# into one row -- the seen-set matched nothing and every run re-downloaded the
-# season it had just pruned.
-function AsArray($value) {
-    if ($null -eq $value) { return @() }
-    if ($value -is [array]) { return $value }
-    return @($value)
-}
-
-function Write-Log([string]$message) {
-    $line = "{0} {1}" -f (Get-Date -Format o), $message
-    Add-Content -LiteralPath $logPath -Value $line -Encoding utf8
-}
-
-# kaggle and kaggle_environments both write to stderr in normal operation (progress
-# bars, OpenSpiel "unknown game" warnings). Under $ErrorActionPreference=Stop a
-# single stderr line -- even a blank one -- is a terminating error that kills the run
-# before its exit code is ever checked, so every external command goes through here
-# and is judged by $LASTEXITCODE instead.
-function Native([scriptblock]$block) {
+function Native([scriptblock]$Block) {
     $previous = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
-    try { & $block } finally { $ErrorActionPreference = $previous }
+    try { & $Block } finally { $ErrorActionPreference = $previous }
 }
 
-function Save-Work([string]$message) {
-    Native {
-        & git add -- main.py test_agent.py verify.py loop.py memory.md decision.md `
-            attempts.jsonl automation.ps1 automation_prompt.md *>> $runLog
-        & git diff --cached --quiet
-        if ($LASTEXITCODE -eq 0) { return }
-        & git commit -q -m $message *>> $runLog
-        & git -c credential.interactive=false push -q origin HEAD *>> $runLog
-        if ($LASTEXITCODE -ne 0) { Write-Log "git push failed; commit kept locally." }
+function Write-Log([string]$Message) {
+    Add-Content -LiteralPath $logPath -Encoding utf8 -Value ("{0} {1}" -f (Get-Date -Format o), $Message)
+}
+
+function Write-Utf8([string]$Path, [string]$Text) {
+    [IO.File]::WriteAllText($Path, $Text, [Text.UTF8Encoding]::new($false))
+}
+
+function Write-Json([string]$Path, $Value) {
+    Write-Utf8 $Path ($Value | ConvertTo-Json -Depth 20 -Compress)
+}
+
+function Read-Json([string]$Path, $Default) {
+    if (-not (Test-Path -LiteralPath $Path)) { return $Default }
+    return Get-Content -Raw -LiteralPath $Path | ConvertFrom-Json
+}
+
+function Put($Object, [string]$Name, $Value) {
+    if ($Object -is [hashtable]) { $Object[$Name] = $Value; return }
+    if ($null -eq $Object.PSObject.Properties[$Name]) {
+        $Object | Add-Member -NotePropertyName $Name -NotePropertyValue $Value
+    } else { $Object.$Name = $Value }
+}
+
+function File-Hash([string]$Path) {
+    return (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
+}
+
+function Send-Notification([string]$Title, [string]$Body) {
+    if ($NoNotify) { return }
+    try {
+        [void][Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime]
+        [void][Windows.UI.Notifications.ToastNotification, Windows.UI.Notifications, ContentType = WindowsRuntime]
+        [void][Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime]
+        $titleText = [Security.SecurityElement]::Escape($Title)
+        $bodyText = [Security.SecurityElement]::Escape($Body)
+        $xml = [Windows.Data.Xml.Dom.XmlDocument]::new()
+        $xml.LoadXml("<toast><visual><binding template='ToastGeneric'><text>$titleText</text><text>$bodyText</text></binding></visual></toast>")
+        $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
+        $app = Get-StartApps | Where-Object { $_.Name -eq "Windows PowerShell" } | Select-Object -First 1
+        $appId = if ($app) { $app.AppID } else { "Microsoft.Windows.PowerShell" }
+        [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($appId).Show($toast)
+    } catch { Write-Log "Notification failed: $($_.Exception.Message)" }
+}
+
+function Publish-Status([string]$StateName, [string]$Message, [string]$Title = "Kaggriculture loop") {
+    $status = Read-Json $statusPath ([pscustomobject]@{})
+    Put $status "state" $StateName
+    Put $status "message" $Message
+    Put $status "updatedAt" (Get-Date -Format o)
+    Write-Json $statusPath $status
+    Write-Log "$StateName`: $Message"
+    Send-Notification $Title $Message
+    return $status
+}
+
+function Assert-Id([string]$Id) {
+    if ($Id -notmatch '^[A-Za-z0-9._-]+$') { throw "Invalid plan id: $Id" }
+}
+
+function Proposal-Path([string]$Id, [string]$Extension = "json") {
+    Assert-Id $Id
+    return Join-Path $proposalDir "$Id.$Extension"
+}
+
+function Validate-Patch([string]$Patch) {
+    if (-not $Patch.Trim()) { throw "Proposal contains no patch." }
+    if ($Patch -match '(?m)^GIT binary patch|^rename (?:from|to)|^deleted file mode|^new file mode') {
+        throw "Proposal patch may only modify existing main.py text."
+    }
+    $files = [regex]::Matches($Patch, '(?m)^diff --git a/(.+) b/(.+)$')
+    if ($files.Count -gt 0) {
+        if ($files.Count -ne 1 -or $files[0].Groups[1].Value -ne "main.py" -or $files[0].Groups[2].Value -ne "main.py") {
+            throw "Proposal patch may only modify main.py."
+        }
+    }
+    if ($Patch -notmatch '(?m)^--- a/main\.py\s*$' -or $Patch -notmatch '(?m)^\+\+\+ b/main\.py\s*$') {
+        throw "Proposal must be a git-compatible unified diff for main.py."
     }
 }
 
-# The agent edits main.py in place, so a rejected experiment must be rolled back or it
-# silently becomes the next run's baseline. The ledgers keep their record of the
-# rejected attempt on purpose.
-function Reject([string]$reason) {
-    Write-Log "$reason Improvement remains active."
-    Copy-Item -LiteralPath (Join-Path $runtime "baseline_main.py") -Destination (Join-Path $workspace "main.py") -Force
-    Copy-Item -LiteralPath (Join-Path $runtime "baseline_test_agent.py") -Destination (Join-Path $workspace "test_agent.py") -Force
-    # A rejected run is where most of the learning is: three measured experiments
-    # and the reason each failed. Save-Work used to run only after a successful
-    # submission, so that evidence sat uncommitted until some later run happened
-    # to ship. The code is already rolled back, so this commits ledgers only.
-    Save-Work "automation: rejected experiments, ledgers updated"
-    exit 0
+function Save-Attempt($Proposal, [string]$Verdict, $Metrics = $null) {
+    $recordPath = Join-Path $runtime "attempt-$($Proposal.id).json"
+    $record = [ordered]@{
+        id = $Proposal.id
+        createdAt = $Proposal.createdAt
+        hypothesis = $Proposal.hypothesis
+        changeFingerprint = $Proposal.changeFingerprint
+        baselineSubmission = $Proposal.baselineSubmission
+        evaluatorVersion = $evaluatorVersion
+        evidenceIds = @($Proposal.evidenceIds)
+        metrics = $Metrics
+        verdict = $Verdict
+        retryCondition = $Proposal.retryCondition
+        history = @($Proposal.history)
+    }
+    Write-Json $recordPath $record
+    Native { & $python loop.py attempt-upsert $recordPath *>> $runLog }
+    if ($LASTEXITCODE -ne 0) { throw "Could not update attempts.jsonl." }
 }
 
-try {
-    Set-Location -LiteralPath $workspace
-    New-Item -ItemType Directory -Path $runtime -Force | Out-Null
-
-    # A killed run never reaches Reject, so the half-finished experiment it left
-    # in main.py would silently become the next run's baseline -- the exact thing
-    # Reject exists to prevent. Roll it back before doing anything else.
-    if (Test-Path -LiteralPath $inFlightPath) {
-        $priorMain = Join-Path $runtime "baseline_main.py"
-        if (Test-Path -LiteralPath $priorMain) {
-            Copy-Item -LiteralPath $priorMain -Destination (Join-Path $workspace "main.py") -Force
-            Copy-Item -LiteralPath (Join-Path $runtime "baseline_test_agent.py") `
-                -Destination (Join-Path $workspace "test_agent.py") -Force
-            Write-Log "Previous run was interrupted; rolled main.py and test_agent.py back to its snapshots."
-        }
-        Remove-Item -LiteralPath $inFlightPath -Force
+function Add-ProposalHistory($Proposal, [string]$StateName, [string]$Detail = "") {
+    $history = @($Proposal.history)
+    $history += [pscustomobject][ordered]@{
+        state = $StateName
+        at = (Get-Date -Format o)
+        detail = $Detail
     }
+    Put $Proposal "history" $history
+}
 
-    if (-not (Test-Path -LiteralPath $statePath)) {
-        @{ submissionsUsed = 1; submissionLimit = 5; lastSubmissionId = "55413328"; needsImprovement = $true } |
-            ConvertTo-Json | Set-Content -LiteralPath $statePath
+function Clear-ActivePlan($Status) {
+    Put $Status "currentProposalId" $null
+    Put $Status "currentCandidateId" $null
+    Put $Status "queuedEvidenceCount" 0
+}
+
+function Restore-Evaluation($Flight) {
+    if ($null -ne $Flight -and (Test-Path -LiteralPath $Flight.baselinePath)) {
+        Copy-Item -LiteralPath $Flight.baselinePath -Destination (Join-Path $workspace "main.py") -Force
     }
-    $state = Get-Content -Raw -LiteralPath $statePath | ConvertFrom-Json
-    if ($null -eq $state.PSObject.Properties["needsImprovement"]) {
-        $state | Add-Member -NotePropertyName needsImprovement -NotePropertyValue $true
-    }
-
-    $submissionsCsv = Native { & $kaggle competitions submissions kaggriculture -v 2>&1 | Out-String }
-    if ($LASTEXITCODE -ne 0) { throw "Kaggle submissions query failed: $submissionsCsv" }
-    Set-Content -LiteralPath (Join-Path $runtime "submissions.txt") -Value $submissionsCsv
-    $submissions = @($submissionsCsv | ConvertFrom-Csv | Where-Object { $_.ref -match '^\d+$' })
-    if (-not $submissions) { throw "Could not identify latest submission." }
-    $submissionId = $submissions[0].ref
-
-    # Kaggle's five-submission limit is per day and resets at UTC midnight, so
-    # count the day's submissions from Kaggle itself. The old local tally only
-    # ever incremented: five lifetime submissions and the loop would go on
-    # improving forever while quietly never shipping again. Timestamps in the
-    # submissions CSV are UTC.
-    $todayUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd")
-    $usedToday = @($submissions | Where-Object { $_.date -like "$todayUtc*" }).Count
-    $state | Add-Member -NotePropertyName submissionsUsed -NotePropertyValue $usedToday -Force
-    $state | Add-Member -NotePropertyName submissionDayUtc -NotePropertyValue $todayUtc -Force
-
-    # Public rating is the leaderboard signal. Log its direction every run so a change
-    # that won locally but scored worse publicly is visible, and hand the history to
-    # the agent so it can weigh what public play actually rewarded.
-    $scoreHistory = @($submissions | Select-Object ref, description, publicScore)
-    $scored = @($scoreHistory | Where-Object { $_.publicScore })
-    if ($scored) {
-        $latestScore = [double]$scored[0].publicScore
-        $trend = ($scored | Select-Object -First 5 | ForEach-Object { $_.publicScore }) -join " <- "
-        $delta = if ($scored.Count -gt 1) { $latestScore - [double]$scored[1].publicScore } else { 0 }
-        $verdict = if ($delta -gt 0) { "IMPROVED" } elseif ($delta -lt 0) { "REGRESSED" } else { "FLAT" }
-        Write-Log "Rating $latestScore ($verdict by $delta vs previous submission). Trend: $trend"
-        $state | Add-Member -NotePropertyName lastScore -NotePropertyValue $latestScore -Force
-        $state | Add-Member -NotePropertyName lastScoreVerdict -NotePropertyValue $verdict -Force
-    }
-
-    $episodesText = Native { & $kaggle competitions episodes $submissionId -v 2>&1 | Out-String }
-    if ($LASTEXITCODE -ne 0) { throw "Kaggle episodes query failed: $episodesText" }
-    Set-Content -LiteralPath (Join-Path $runtime "episodes.csv") -Value $episodesText
-    $episodes = @($episodesText | ConvertFrom-Csv | Where-Object { $_.id -match '^\d+$' })
-    if ($DryRun) {
-        Write-Log "Dry run succeeded for submission $submissionId with $($episodes.Count) episode(s); needsImprovement=$($state.needsImprovement)."
-        exit 0
-    }
-
-    $replayDir = Join-Path $workspace "replays\submission-$submissionId"
-    New-Item -ItemType Directory -Path $replayDir -Force | Out-Null
-
-    # The index, not the disk, is the record of what we have already seen. Raw
-    # replays are ~17MB each and get pruned once they have been indexed, so
-    # testing for the file would re-download the whole season every run.
-    $seen = @{}
-    if (Test-Path -LiteralPath $indexPath) {
-        foreach ($row in (AsArray (Get-Content -Raw -LiteralPath $indexPath | ConvertFrom-Json))) {
-            $seen[[string]$row.episode] = $true
-        }
-    }
-
-    $newFiles = [Collections.Generic.List[string]]::new()
-    foreach ($episode in $episodes) {
-        $target = Join-Path $replayDir ("episode-{0}-replay.json" -f $episode.id)
-        if ($seen.ContainsKey([string]$episode.id) -or (Test-Path -LiteralPath $target)) { continue }
-        $download = Native { & $kaggle competitions replay $episode.id -p $replayDir 2>&1 | Out-String }
-        if ($LASTEXITCODE -ne 0) {
-            Write-Log "Replay $($episode.id) failed: $download"
-            continue
-        }
-        if (Test-Path -LiteralPath $target) { $newFiles.Add($target) }
-    }
-
-    $downloadedReplayCount = $newFiles.Count
-    if ($downloadedReplayCount -gt 0) { $state.needsImprovement = $true }
-    $state | ConvertTo-Json | Set-Content -LiteralPath $statePath
-
-    if ($downloadedReplayCount -eq 0 -and -not $state.needsImprovement) {
-        Write-Log "No unseen replays and the latest candidate passed quality; waiting for new evidence."
-        exit 0
-    }
-
-    # Index every replay from its first 64KB -- `rewards` and `TeamNames` are
-    # serialised before `steps`, so this never parses a 17MB file -- then keep
-    # only the handful worth reading and delete the rest of the raw corpus.
-    # Reading all 41 replays equally is what let "20W-20L on average" hide that
-    # the top of the field scores 175,862 against our best-ever 82,876.
-    Native { & $python loop.py index *>> $runLog }
-    Native { & $python loop.py attempts *>> $runLog }
-    $selected = AsArray ((Native { & $python loop.py select | Out-String }) | ConvertFrom-Json)
-    Native { & $python loop.py prune *>> $runLog }
-
-    if ($selected.Count -eq 0) {
-        Write-Log "Improvement remains active, but no replay evidence is available."
-        exit 0
-    }
-    $analysisFiles = @($selected | ForEach-Object { $_.file })
-    Write-Log ("Analysing {0} selected replay(s): {1} new this run." -f $selected.Count, $downloadedReplayCount)
-
-    Copy-Item -LiteralPath (Join-Path $workspace "main.py") -Destination (Join-Path $runtime "baseline_main.py") -Force
-    Copy-Item -LiteralPath (Join-Path $workspace "test_agent.py") -Destination (Join-Path $runtime "baseline_test_agent.py") -Force
-    Copy-Item -LiteralPath (Join-Path $workspace "verify.py") -Destination (Join-Path $runtime "baseline_verify.py") -Force
-    Copy-Item -LiteralPath (Join-Path $workspace "memory.md") -Destination (Join-Path $runtime "baseline_memory.md") -Force
-    Copy-Item -LiteralPath (Join-Path $workspace "decision.md") -Destination (Join-Path $runtime "baseline_decision.md") -Force
-    if (Test-Path -LiteralPath $requestPath) { Remove-Item -LiteralPath $requestPath -Force }
-    # Everything from here can leave main.py mid-edit if the process is killed.
-    New-Item -ItemType File -Path $inFlightPath -Force | Out-Null
-
-    $index = AsArray (Get-Content -Raw -LiteralPath $indexPath | ConvertFrom-Json)
-    $losses = @($index | Where-Object { $_.result -eq "LOSS" })
-    $ourBest = ($index | Measure-Object -Property me -Maximum).Maximum
-    $fieldBest = $index | Sort-Object -Property them -Descending | Select-Object -First 1
-
-    @{
-        submissionId = $submissionId
-        downloadedAt = (Get-Date -Format o)
-        newReplayCount = $downloadedReplayCount
-        # Only these are worth opening. Self-games are excluded from the index:
-        # our own submissions meet in the public field and teach nothing about it.
-        analysisReplayCount = $selected.Count
-        analysisReplayFiles = $analysisFiles
-        selectedReplays = $selected
-        fieldRecord = @{
-            games = $index.Count
-            wins = @($index | Where-Object { $_.result -eq "WIN" }).Count
-            losses = $losses.Count
-            ourBestGame = $ourBest
-            fieldBestGame = $fieldBest.them
-            fieldBestBy = $fieldBest.opponent
-            fieldBestWatch = $fieldBest.watch
-        }
-        attemptsFile = "attempts.jsonl"
-        continuation = ($downloadedReplayCount -eq 0)
-        scoreHistory = $scoreHistory
-        state = $state
-    } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $runtime "run_context.json")
-
-    Write-Log "Starting analysis for $($selected.Count) replay(s), submission $submissionId."
-    # `-p` is non-interactive, so nothing can answer a permission prompt: a denied
-    # tool call would look like a failed experiment rather than a blocked one.
-    # Web tools are denied outright instead -- the wrapper owns every Kaggle call,
-    # and the agent is told it has no network.
-    $reply = Native {
-        Get-Content -Raw -LiteralPath $promptPath |
-            & claude -p --model opus --effort high `
-                --permission-mode bypassPermissions `
-                --disallowed-tools WebFetch WebSearch 2>&1 | Out-String
-    }
-    $exit = $LASTEXITCODE
-    Set-Content -LiteralPath (Join-Path $runtime "last_message.txt") -Value $reply
-    if ($exit -ne 0) { Reject "Analysis agent exited with code $exit." }
-    if (-not (Test-Path -LiteralPath $requestPath)) { Reject "No candidate was approved." }
-
-    $request = Get-Content -Raw -LiteralPath $requestPath | ConvertFrom-Json
-    if (-not $request.approved) { Reject "Submission request was not approved." }
-
-    $baselineHash = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $runtime "baseline_main.py")).Hash
-    $candidateHash = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $workspace "main.py")).Hash
-    if ($baselineHash -eq $candidateHash) { Reject "Rejected unchanged main.py." }
-
-    foreach ($ledger in @("memory.md", "decision.md")) {
-        $before = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $runtime "baseline_$ledger")).Hash
-        $after = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $workspace $ledger)).Hash
-        if ($before -eq $after) { Reject "Rejected candidate because $ledger was not updated." }
-    }
-
-    Native { & $python -m py_compile main.py test_agent.py verify.py *>> $runLog }
-    if ($LASTEXITCODE -ne 0) { Reject "py_compile failed." }
-    Native { & $python test_agent.py *>> $runLog }
-    if ($LASTEXITCODE -ne 0) { Reject "test_agent.py failed." }
-
-    # Re-run the benchmark here instead of trusting the numbers the agent reported. Eight
-    # games cost about 40 seconds, so the gate is measured rather than self-graded.
-    $benchmark = Native { & $python (Join-Path $runtime "baseline_verify.py") `
-        (Join-Path $runtime "baseline_main.py") 4 2>$null }
-    if ($LASTEXITCODE -ne 0) { Reject "verify.py failed to run." }
-    Set-Content -LiteralPath (Join-Path $runtime "verified.json") -Value $benchmark
-    $verified = @($benchmark) | Where-Object { $_ } | Select-Object -Last 1 | ConvertFrom-Json
-    $games = @($verified.games)
-    $mirrorDelta = [double]$verified.mirror.delta
-    $allDone = @($games | Where-Object {
-        $_.candidate_status -eq "DONE" -and $_.baseline_status -eq "DONE"
-    }).Count
-    $wins = @($games | Where-Object { [double]$_.candidate -gt [double]$_.baseline }).Count
-    $meanDelta = if ($games.Count) {
-        ($games | ForEach-Object { [double]$_.candidate - [double]$_.baseline } |
-            Measure-Object -Average).Average
-    } else { 0 }
-
-    if ($games.Count -lt 8 -or $allDone -ne $games.Count -or $wins -lt 7 -or $meanDelta -lt 100) {
-        Reject "Failed measured gate: games=$($games.Count), wins=$wins, meanDelta=$meanDelta, done=$allDone."
-    }
-    # The head-to-head alone cannot tell production from racing, so require the
-    # mirror -- each agent against itself -- to gain too. See verify.py.
-    if (-not $verified.mirror.candidate.all_done -or $mirrorDelta -lt $mirrorMin) {
-        Reject "Failed mirror gate: mirrorDelta=$mirrorDelta (need $mirrorMin). Beats the old agent without producing more."
-    }
-    Write-Log "Verified gate: wins=$wins/$($games.Count), meanDelta=$meanDelta, mirrorDelta=$mirrorDelta."
-
-    if ($usedToday -ge [int]$state.submissionLimit) {
-        $state | ConvertTo-Json | Set-Content -LiteralPath $statePath
-        Write-Log "Daily submission budget spent ($usedToday/$($state.submissionLimit) UTC $todayUtc); verified candidate retained locally. It will be submitted after the reset."
-        exit 0
-    }
-
-    $message = ([string]$request.message).Trim()
-    if (-not $message) { $message = "Automated replay-tested improvement" }
-    $submit = Native { & $kaggle competitions submit kaggriculture -f main.py -m $message 2>&1 | Out-String }
-    Add-Content -LiteralPath $logPath -Value $submit
-    if ($LASTEXITCODE -eq 0 -and $submit -match 'Successfully submitted') {
-        $state | Add-Member -NotePropertyName submissionsUsed -NotePropertyValue ($usedToday + 1) -Force
-        $state | Add-Member -NotePropertyName lastSubmittedAt -NotePropertyValue (Get-Date -Format o) -Force
-        $state | Add-Member -NotePropertyName lastMessage -NotePropertyValue $message -Force
-        $state.needsImprovement = $false
-        $state | ConvertTo-Json | Set-Content -LiteralPath $statePath
-        Write-Log "Submitted candidate; budget $($usedToday + 1)/$($state.submissionLimit) for UTC $todayUtc."
-        Save-Work "automation: $message (+$([int]$meanDelta) mean money, $wins/$($games.Count) wins)"
-    } else {
-        Write-Log "Kaggle submission failed; budget unchanged."
-    }
-} catch {
-    Write-Log "ERROR: $($_.Exception.Message)"
-} finally {
-    # Runs on `exit` too, so the marker is left behind only by a killed process.
     if (Test-Path -LiteralPath $inFlightPath) { Remove-Item -LiteralPath $inFlightPath -Force }
+}
+
+function Recover-InterruptedEvaluation {
+    if (-not (Test-Path -LiteralPath $inFlightPath)) { return }
+    $flight = Read-Json $inFlightPath $null
+    Restore-Evaluation $flight
+    if ($flight.id) {
+        $proposal = Read-Json (Proposal-Path $flight.id) $null
+        if ($proposal) {
+            Put $proposal "status" "rejected"
+            Put $proposal "verdict" "rejected"
+            Add-ProposalHistory $proposal "rejected" "Interrupted evaluation was restored on the next run."
+            Write-Json (Proposal-Path $flight.id) $proposal
+            Save-Attempt $proposal "rejected" $null
+        }
+    }
+    $status = Publish-Status "REJECTED" "Interrupted evaluation was rolled back to its recorded baseline."
+    Clear-ActivePlan $status
+    Write-Json $statusPath $status
+}
+
+function Recover-InterruptedPlanning {
+    $status = Read-Json $statusPath ([pscustomobject]@{ state = "IDLE" })
+    if ($status.state -ne "PLAN_RUNNING") { return }
+    $status = Publish-Status "CAP_REACHED" "An interrupted planning run was closed without changing code."
+    Clear-ActivePlan $status
+    Write-Json $statusPath $status
+}
+
+function Cached-Or-Run([string]$CachePath, [scriptblock]$Command) {
+    if ($DryRun) {
+        if (-not (Test-Path -LiteralPath $CachePath)) { throw "Dry-run cache missing: $CachePath" }
+        return Get-Content -Raw -LiteralPath $CachePath
+    }
+    $text = Native { & $Command | Out-String }
+    if ($LASTEXITCODE -ne 0) { throw "External command failed: $text" }
+    Write-Utf8 $CachePath $text
+    return $text
+}
+
+function Invoke-Poll {
+    $submissionsPath = Join-Path $runtime "submissions.txt"
+    $submissionsText = Cached-Or-Run $submissionsPath { & $kaggle competitions submissions kaggriculture -v 2>&1 }
+    $submissions = @($submissionsText | ConvertFrom-Csv | Where-Object { $_.ref -match '^\d+$' })
+    if (-not $submissions) { throw "Could not identify the latest submission." }
+    $submissionId = [string]$submissions[0].ref
+
+    $state = Read-Json $statePath ([pscustomobject]@{ submissionLimit = 5 })
+    Put $state "lastSubmissionId" $submissionId
+    Put $state "lastPollAt" (Get-Date -Format o)
+    $todayUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd")
+    Put $state "submissionDayUtc" $todayUtc
+    Put $state "submissionsUsed" @($submissions | Where-Object { $_.date -like "$todayUtc*" }).Count
+    $scored = @($submissions | Where-Object { $_.publicScore })
+    if ($scored) { Put $state "lastScore" ([double]$scored[0].publicScore) }
+
+    $episodesPath = Join-Path $runtime "episodes.csv"
+    $episodesText = Cached-Or-Run $episodesPath { & $kaggle competitions episodes $submissionId -v 2>&1 }
+    $episodes = @($episodesText | ConvertFrom-Csv | Where-Object { $_.id -match '^\d+$' })
+    $seen = @{}
+    if (Test-Path -LiteralPath (Join-Path $workspace "replay_index.json")) {
+        foreach ($row in (Get-Content -Raw replay_index.json | ConvertFrom-Json)) { $seen[[string]$row.episode] = $true }
+    }
+    $newIds = [Collections.Generic.List[string]]::new()
+    if (-not $DryRun) {
+        $replayDir = Join-Path $workspace "replays\submission-$submissionId"
+        New-Item -ItemType Directory -Path $replayDir -Force | Out-Null
+        foreach ($episode in $episodes) {
+            if ($seen.ContainsKey([string]$episode.id)) { continue }
+            $download = Native { & $kaggle competitions replay $episode.id -p $replayDir 2>&1 | Out-String }
+            if ($LASTEXITCODE -eq 0) {
+                $newIds.Add([string]$episode.id)
+                $seen[[string]$episode.id] = $true
+            }
+            else { Write-Log "Replay $($episode.id) failed: $download" }
+        }
+    }
+
+    Native { & $python loop.py index *>> $runLog }
+    if ($LASTEXITCODE -ne 0) { throw "Replay indexing failed." }
+    Native { & $python loop.py evidence $submissionId $evidencePath ($newIds -join ',') *>> $runLog }
+    if ($LASTEXITCODE -ne 0) { throw "Evidence generation failed." }
+    if ($DryRun) { Native { & $python loop.py prune --dry-run *>> $runLog } }
+    else { Native { & $python loop.py prune *>> $runLog } }
+
+    $evidence = Read-Json $evidencePath $null
+    Put $evidence "scoreHistory" @($submissions | Select-Object -First 5 ref, publicScore)
+    Write-Json $evidencePath $evidence
+    if ((Get-Item -LiteralPath $evidencePath).Length -gt 20000) { throw "Evidence packet exceeded 20KB after score history." }
+    Put $state "lastEvidenceFingerprint" $evidence.evidenceFingerprint
+    Write-Json $statePath $state
+
+    $status = Read-Json $statusPath ([pscustomobject]@{ state = "IDLE" })
+    Put $status "lastPollAt" (Get-Date -Format o)
+    Put $status "lastEvidenceFingerprint" $evidence.evidenceFingerprint
+    Put $status "latestSubmissionId" $submissionId
+    Put $status "newReplayCount" $newIds.Count
+    $busy = @("AWAITING_REVIEW", "EVALUATING", "READY_TO_SUBMIT", "SUBMIT_FAILED") -contains $status.state
+    if ($busy) {
+        $queued = 0
+        if ($status.currentProposalId) {
+            $proposal = Read-Json (Proposal-Path $status.currentProposalId) $null
+            if ($proposal) { $queued = [Math]::Max(0, [int]$evidence.currentRecord.games - [int]$proposal.evidenceGameCount) }
+        }
+        Put $status "queuedEvidenceCount" $queued
+        Write-Json $statusPath $status
+        if ($status.state -in @("READY_TO_SUBMIT", "SUBMIT_FAILED")) {
+            $pendingMessage = "Candidate $($status.currentCandidateId) awaits submission approval; $queued newer games queued."
+        } elseif ($status.state -eq "EVALUATING") {
+            $pendingMessage = "Plan $($status.currentProposalId) is evaluating; $queued newer games queued."
+        } else {
+            $pendingMessage = "Plan $($status.currentProposalId) awaits review; $queued newer games queued."
+        }
+        Send-Notification "Kaggriculture loop" $pendingMessage
+        Write-Log "Poll complete; $pendingMessage"
+    } elseif ([int]$evidence.currentRecord.games -ge 25 -and
+              $evidence.evidenceFingerprint -ne $status.lastPlannedFingerprint) {
+        Put $status "state" "EVIDENCE_READY"
+        Put $status "message" "New evidence ready - check /usage, then arm planning."
+        Put $status "updatedAt" (Get-Date -Format o)
+        Write-Json $statusPath $status
+        Write-Log "EVIDENCE_READY: $($status.message)"
+        Send-Notification "Kaggriculture evidence ready" $status.message
+    } else {
+        Put $status "state" "IDLE"
+        Put $status "message" "Poll complete - nothing actionable."
+        Put $status "updatedAt" (Get-Date -Format o)
+        Write-Json $statusPath $status
+        Write-Log "IDLE: $($status.message)"
+        Send-Notification "Kaggriculture loop" $status.message
+    }
+}
+
+function Proposal-Data($Envelope) {
+    if ($null -ne $Envelope.structured_output) { return $Envelope.structured_output }
+    if ($Envelope.result -is [string]) {
+        try { return $Envelope.result | ConvertFrom-Json } catch { throw "Claude returned no structured proposal." }
+    }
+    if ($null -ne $Envelope.status) { return $Envelope }
+    throw "Claude returned no structured proposal."
+}
+
+function Write-ProposalMarkdown($Proposal) {
+    $evidenceLines = @($Proposal.evidence | ForEach-Object { "- $_" }) -join "`n"
+    $text = @"
+# $($Proposal.title)
+
+**Plan ID:** `$($Proposal.id)`
+**Status:** $($Proposal.status)
+**Baseline:** submission $($Proposal.baselineSubmission), hash `$($Proposal.baselineHash)`
+
+## Hypothesis
+
+$($Proposal.hypothesis)
+
+## Evidence
+
+$evidenceLines
+
+## Exact patch
+
+~~~diff
+$($Proposal.patch)
+~~~
+
+## Retry condition
+
+$($Proposal.retryCondition)
+
+Approve implementation and testing with:
+
+~~~powershell
+.\automation.ps1 -ApprovePlan $($Proposal.id)
+~~~
+"@
+    Write-Utf8 (Proposal-Path $Proposal.id "md") $text
+}
+
+function Invoke-ArmPlan {
+    if (-not $ConfirmUsageAbove50) { throw "Check /usage first, then pass -ConfirmUsageAbove50." }
+    $status = Read-Json $statusPath ([pscustomobject]@{ state = "IDLE" })
+    if ($status.state -ne "EVIDENCE_READY") { throw "No unconsumed evidence is ready (state=$($status.state))." }
+    $evidence = Read-Json $evidencePath $null
+    if (-not $evidence) { throw "Evidence packet is missing." }
+    Put $status "lastPlannedFingerprint" $evidence.evidenceFingerprint
+    Write-Json $statusPath $status
+    Publish-Status "PLAN_RUNNING" "One capped Sonnet planning run is in progress." | Out-Null
+
+    $memory = Get-Content -Raw -LiteralPath (Join-Path $workspace "memory.md")
+    if ([Text.Encoding]::UTF8.GetByteCount($memory) -gt 12000) { throw "memory.md exceeds the 12KB planning limit." }
+    $input = @"
+$(Get-Content -Raw -LiteralPath (Join-Path $workspace "automation_prompt.md"))
+
+## Evidence packet
+~~~json
+$(Get-Content -Raw -LiteralPath $evidencePath)
+~~~
+
+## Curated strategy memory
+$memory
+
+## Current main.py
+~~~python
+$(Get-Content -Raw -LiteralPath (Join-Path $workspace "main.py"))
+~~~
+"@
+    $inputPath = Join-Path $runtime "plan_input.md"
+    Write-Utf8 $inputPath $input
+    if ([Text.Encoding]::UTF8.GetByteCount($input) -gt 80000) { throw "Planner input exceeds the 80KB (~20K token) limit." }
+
+    $schema = '{"type":"object","properties":{"status":{"type":"string","enum":["proposal","wait"]},"title":{"type":"string"},"hypothesis":{"type":"string"},"evidence":{"type":"array","items":{"type":"string"}},"patch":{"type":"string"},"message":{"type":"string"},"retryCondition":{"type":"string"}},"required":["status","title","hypothesis","evidence","patch","message","retryCondition"],"additionalProperties":false}'
+    $reply = Native {
+        Get-Content -Raw -LiteralPath $inputPath | & claude -p --model sonnet --effort medium `
+            --safe-mode --no-session-persistence --permission-mode plan --tools= `
+            --output-format json --json-schema $schema `
+            2>&1 | Out-String
+    }
+    $exitCode = $LASTEXITCODE
+    Write-Utf8 (Join-Path $runtime "last_plan_result.json") $reply
+    if ($exitCode -ne 0) {
+        Publish-Status "CAP_REACHED" "Planning stopped or failed before producing a valid plan." | Out-Null
+        return
+    }
+    try { $envelope = $reply | ConvertFrom-Json; $data = Proposal-Data $envelope }
+    catch { Publish-Status "CAP_REACHED" "Planning returned invalid structured output; code was untouched." | Out-Null; return }
+    if ($null -ne $envelope.num_turns -and [int]$envelope.num_turns -gt 6) {
+        Publish-Status "CAP_REACHED" "Planning exceeded the six-turn cap; code was untouched." | Out-Null
+        return
+    }
+
+    $id = "plan-{0}-{1}" -f (Get-Date -Format "yyyyMMdd-HHmmss"), $evidence.evidenceFingerprint.Substring(0, 8)
+    $patchPath = Proposal-Path $id "patch"
+    if ($data.status -eq "proposal") {
+        $data.patch = ([string]$data.patch).Replace("`r`n", "`n")
+        try { Validate-Patch $data.patch } catch {
+            Publish-Status "CAP_REACHED" "Plan patch was invalid: $($_.Exception.Message)" | Out-Null
+            return
+        }
+        Write-Utf8 $patchPath $data.patch
+        $changeFingerprint = File-Hash $patchPath
+    } else { $changeFingerprint = "wait-$($evidence.evidenceFingerprint.Substring(0, 16))" }
+
+    $proposal = [pscustomobject][ordered]@{
+        id = $id; createdAt = (Get-Date -Format o); status = $data.status
+        title = $data.title; hypothesis = $data.hypothesis; evidence = @($data.evidence)
+        patch = $data.patch; patchPath = $patchPath; message = $data.message
+        retryCondition = $data.retryCondition; changeFingerprint = $changeFingerprint
+        baselineHash = File-Hash (Join-Path $workspace "main.py")
+        baselineSubmission = [string]$evidence.submissionId
+        evidenceFingerprint = $evidence.evidenceFingerprint
+        evidenceIds = @($evidence.selectedEpisodeIds)
+        evidenceGameCount = [int]$evidence.currentRecord.games
+        usage = $envelope.usage; turns = $envelope.num_turns
+        verdict = if ($data.status -eq "proposal") { "queued" } else { "wait" }
+        history = @()
+    }
+    Add-ProposalHistory $proposal $proposal.verdict $data.message
+    Write-Json (Proposal-Path $id) $proposal
+    Write-ProposalMarkdown $proposal
+    Save-Attempt $proposal $proposal.verdict $null
+    $status = Read-Json $statusPath ([pscustomobject]@{})
+    Put $status "lastPlannedFingerprint" $evidence.evidenceFingerprint
+    Put $status "currentProposalId" $id
+    if ($data.status -eq "wait") {
+        Clear-ActivePlan $status
+        Put $status "state" "REJECTED"; Put $status "message" "Plan $id concluded that more evidence is needed."
+        Put $status "updatedAt" (Get-Date -Format o)
+        Write-Json $statusPath $status
+        Write-Log "REJECTED: $($status.message)"
+        Send-Notification "Kaggriculture plan complete" $status.message
+    } else {
+        Put $status "state" "AWAITING_REVIEW"; Put $status "message" "Strategy plan $id is ready for review."
+        Put $status "updatedAt" (Get-Date -Format o)
+        Write-Json $statusPath $status
+        Write-Log "AWAITING_REVIEW: $($status.message)"
+        Send-Notification "Kaggriculture plan ready" "$($status.message) Saved to $((Proposal-Path $id 'md'))."
+    }
+}
+
+function Evaluate-Json([string]$Baseline, [int]$Count, [int]$Start, [string]$Output) {
+    $raw = Native { & $python verify.py $Baseline $Count $Start 2>$null | Out-String }
+    if ($LASTEXITCODE -ne 0) { throw "verify.py failed." }
+    Write-Utf8 $Output $raw
+    return $raw | ConvertFrom-Json
+}
+
+function Reject-Evaluation($Proposal, $Flight, [string]$Reason, $Metrics = $null) {
+    Restore-Evaluation $Flight
+    Put $Proposal "status" "rejected"
+    Put $Proposal "verdict" "rejected"
+    Add-ProposalHistory $Proposal "tested" $Reason
+    Add-ProposalHistory $Proposal "rejected" $Reason
+    Put $Proposal "rejectionReason" $Reason
+    if ($Metrics) { Put $Proposal "metrics" $Metrics }
+    Write-Json (Proposal-Path $Proposal.id) $Proposal
+    Save-Attempt $Proposal "rejected" $Metrics
+    $status = Publish-Status "REJECTED" "Plan $($Proposal.id) was rolled back: $Reason"
+    Clear-ActivePlan $status
+    Write-Json $statusPath $status
+}
+
+function Invoke-Approve([string]$Id) {
+    $status = Read-Json $statusPath ([pscustomobject]@{ state = "IDLE" })
+    if ($status.state -ne "AWAITING_REVIEW" -or $status.currentProposalId -ne $Id) {
+        throw "Plan $Id is not the currently reviewable plan."
+    }
+    $proposal = Read-Json (Proposal-Path $Id) $null
+    if (-not $proposal -or $proposal.status -ne "proposal") { throw "Plan $Id is not awaiting approval." }
+    if ((File-Hash (Join-Path $workspace "main.py")) -ne $proposal.baselineHash) {
+        throw "main.py changed after the plan was created; refusing a stale patch."
+    }
+    Validate-Patch (Get-Content -Raw -LiteralPath $proposal.patchPath)
+    $dir = Join-Path $candidateDir $Id
+    New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    $baselinePath = Join-Path $dir "baseline_main.py"
+    Copy-Item -LiteralPath (Join-Path $workspace "main.py") -Destination $baselinePath -Force
+    $flight = [pscustomobject]@{ id = $Id; baselinePath = $baselinePath; baselineHash = $proposal.baselineHash }
+    Write-Json $inFlightPath $flight
+    Put $proposal "status" "evaluating"
+    Put $proposal "verdict" "approved"
+    Add-ProposalHistory $proposal "approved" "User approved exact patch and local evaluation."
+    Write-Json (Proposal-Path $Id) $proposal
+    Save-Attempt $proposal "approved" $null
+    Publish-Status "EVALUATING" "Applying and testing plan $Id." | Out-Null
+    try {
+        Native { & git apply --check --whitespace=nowarn $proposal.patchPath *>> $runLog }
+        if ($LASTEXITCODE -ne 0) { throw "Patch no longer applies cleanly." }
+        Native { & git apply --whitespace=nowarn $proposal.patchPath *>> $runLog }
+        if ($LASTEXITCODE -ne 0) { throw "Patch application failed." }
+        Native { & $python -m py_compile main.py test_agent.py verify.py loop.py *>> $runLog }
+        if ($LASTEXITCODE -ne 0) { throw "py_compile failed." }
+        Native { & $python test_agent.py *>> $runLog }
+        if ($LASTEXITCODE -ne 0) { throw "test_agent.py failed." }
+
+        $smoke = Evaluate-Json $baselinePath 4 16 (Join-Path $dir "smoke.json")
+        if (-not $smoke.summary.allDone -or [double]$smoke.summary.mirrorDelta -lt -1000 -or
+            [double]$smoke.summary.headToHeadMean -lt -1000) {
+            Reject-Evaluation $proposal $flight "smoke gate failed" $smoke.summary
+            return
+        }
+        $final = Evaluate-Json $baselinePath 12 0 (Join-Path $dir "final.json")
+        $passed = $final.summary.allDone -and [double]$final.summary.mirrorDelta -ge 1000 -and
+                  [double]$final.summary.mirrorMedianSeedDelta -gt 0 -and
+                  [double]$final.summary.headToHeadMean -ge -500
+        if (-not $passed) {
+            Reject-Evaluation $proposal $flight "final competition gate failed" $final.summary
+            return
+        }
+        if (Test-Path -LiteralPath $inFlightPath) { Remove-Item -LiteralPath $inFlightPath -Force }
+        Put $proposal "status" "ready"
+        Put $proposal "verdict" "ready"
+        Add-ProposalHistory $proposal "tested" "Smoke and final competition gates passed."
+        Add-ProposalHistory $proposal "ready" "Waiting for separate Kaggle submission approval."
+        Put $proposal "candidateHash" (File-Hash (Join-Path $workspace "main.py"))
+        Put $proposal "metrics" $final.summary
+        Write-Json (Proposal-Path $Id) $proposal
+        Save-Attempt $proposal "ready" $final.summary
+        $status = Read-Json $statusPath ([pscustomobject]@{})
+        Put $status "currentCandidateId" $Id
+        Put $status "currentProposalId" $Id
+        Write-Json $statusPath $status
+        Publish-Status "READY_TO_SUBMIT" "Plan $Id passed; Kaggle submission still requires separate approval." "Kaggriculture candidate ready" | Out-Null
+    } catch {
+        Reject-Evaluation $proposal $flight $_.Exception.Message $null
+    }
+}
+
+function Invoke-Reject([string]$Id) {
+    $status = Read-Json $statusPath ([pscustomobject]@{ state = "IDLE" })
+    $activeId = if ($status.state -in @("READY_TO_SUBMIT", "SUBMIT_FAILED")) {
+        $status.currentCandidateId
+    } else { $status.currentProposalId }
+    if ($status.state -notin @("AWAITING_REVIEW", "READY_TO_SUBMIT", "SUBMIT_FAILED") -or $activeId -ne $Id) {
+        throw "Plan $Id is not the current unresolved plan or candidate."
+    }
+    $proposal = Read-Json (Proposal-Path $Id) $null
+    if (-not $proposal) { throw "Plan $Id does not exist." }
+    if ($proposal.status -eq "ready") {
+        if ((File-Hash (Join-Path $workspace "main.py")) -ne $proposal.candidateHash) {
+            throw "main.py no longer matches the ready candidate; refusing to overwrite it."
+        }
+        $baseline = Join-Path (Join-Path $candidateDir $Id) "baseline_main.py"
+        Copy-Item -LiteralPath $baseline -Destination (Join-Path $workspace "main.py") -Force
+    } elseif ($proposal.status -ne "proposal") { throw "Plan $Id is not rejectable (status=$($proposal.status))." }
+    Put $proposal "status" "rejected_by_user"; Put $proposal "verdict" "rejected_by_user"
+    Add-ProposalHistory $proposal "rejected_by_user" "User rejected the unresolved plan or candidate."
+    Write-Json (Proposal-Path $Id) $proposal
+    Save-Attempt $proposal "rejected_by_user" $proposal.metrics
+    $status = Publish-Status "REJECTED" "Plan $Id was rejected; future evidence may now be planned."
+    Clear-ActivePlan $status
+    Write-Json $statusPath $status
+}
+
+function Query-Submissions {
+    $text = Native { & $kaggle competitions submissions kaggriculture -v 2>&1 | Out-String }
+    if ($LASTEXITCODE -ne 0) { throw "Kaggle submissions query failed: $text" }
+    return @($text | ConvertFrom-Csv | Where-Object { $_.ref -match '^\d+$' })
+}
+
+function Invoke-Submit([string]$Id) {
+    $status = Read-Json $statusPath ([pscustomobject]@{ state = "IDLE" })
+    if ($status.state -notin @("READY_TO_SUBMIT", "SUBMIT_FAILED") -or $status.currentCandidateId -ne $Id) {
+        throw "Candidate $Id is not awaiting separate submission approval."
+    }
+    $proposal = Read-Json (Proposal-Path $Id) $null
+    if (-not $proposal -or $proposal.status -ne "ready") { throw "Candidate $Id is not ready to submit." }
+    if ((File-Hash (Join-Path $workspace "main.py")) -ne $proposal.candidateHash) {
+        throw "main.py no longer matches candidate $Id."
+    }
+    if ($DryRun) { Publish-Status "READY_TO_SUBMIT" "Dry run: candidate $Id was not submitted." | Out-Null; return }
+    $before = Query-Submissions
+    $today = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd")
+    if (@($before | Where-Object { $_.date -like "$today*" }).Count -ge 5) { throw "Daily Kaggle submission budget is exhausted." }
+    $message = [string]$proposal.message
+    if ($message.Length -gt 200) { $message = $message.Substring(0, 200) }
+    $reply = Native { & $kaggle competitions submit kaggriculture -f main.py -m $message 2>&1 | Out-String }
+    if ($LASTEXITCODE -ne 0 -or $reply -notmatch "Successfully submitted") {
+        Publish-Status "SUBMIT_FAILED" "Kaggle rejected candidate $Id; the local candidate was retained." | Out-Null
+        return
+    }
+    $beforeIds = @{}; foreach ($row in $before) { $beforeIds[[string]$row.ref] = $true }
+    $observed = $null
+    for ($attempt = 0; $attempt -lt 3 -and -not $observed; $attempt++) {
+        if ($attempt -gt 0) { Start-Sleep -Seconds 5 }
+        $after = Query-Submissions
+        $observed = $after | Where-Object { -not $beforeIds.ContainsKey([string]$_.ref) } | Select-Object -First 1
+    }
+    if (-not $observed) {
+        Publish-Status "SUBMIT_FAILED" "Upload reported success but no new submission ID was observed; candidate retained." | Out-Null
+        return
+    }
+    $state = Read-Json $statePath ([pscustomobject]@{})
+    Put $state "lastSubmissionId" ([string]$observed.ref)
+    Put $state "lastSubmittedAt" (Get-Date -Format o)
+    Put $state "lastMessage" $message
+    Put $state "lastCandidateHash" $proposal.candidateHash
+    Write-Json $statePath $state
+    Put $proposal "status" "submitted"; Put $proposal "verdict" "submitted"
+    Add-ProposalHistory $proposal "submitted" "Observed Kaggle submission $($observed.ref)."
+    Put $proposal "submissionId" ([string]$observed.ref); Put $proposal "submittedAt" (Get-Date -Format o)
+    Write-Json (Proposal-Path $Id) $proposal
+    Save-Attempt $proposal "submitted" $proposal.metrics
+    $status = Publish-Status "SUBMITTED" "Candidate $Id was confirmed as Kaggle submission $($observed.ref)." "Kaggriculture submitted"
+    Clear-ActivePlan $status
+    Write-Json $statusPath $status
+}
+
+function Invoke-InstallTask {
+    $scriptPath = (Resolve-Path -LiteralPath (Join-Path $workspace "automation.ps1")).Path
+    $matches = @()
+    try {
+        $matches = @(Get-ScheduledTask | Where-Object {
+            @($_.Actions | Where-Object { ($_.Execute + ' ' + $_.Arguments) -like "*$scriptPath*" }).Count -gt 0
+        })
+    } catch { Write-Log "Could not enumerate all scheduled tasks: $($_.Exception.Message)" }
+    if ($matches.Count -gt 1) { throw "Multiple scheduled tasks already target automation.ps1; refusing to create another." }
+    $taskName = if ($matches.Count -eq 1) { $matches[0].TaskName } else { "Kaggriculture Replay Optimizer" }
+    $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptPath`" -Poll"
+    $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(2) -RepetitionInterval (New-TimeSpan -Hours 4) -RepetitionDuration (New-TimeSpan -Days 3650)
+    $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 30) -StartWhenAvailable -Hidden
+    $principal = New-ScheduledTaskPrincipal -UserId ([Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive -RunLevel Limited
+    Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force | Out-Null
+    Publish-Status "IDLE" "Scheduled task '$taskName' now polls every four hours." | Out-Null
+}
+
+$modeCount = @($Poll.IsPresent, $ArmPlan.IsPresent, -not [string]::IsNullOrWhiteSpace($ApprovePlan),
+               -not [string]::IsNullOrWhiteSpace($RejectPlan), -not [string]::IsNullOrWhiteSpace($SubmitCandidate),
+               $InstallTask.IsPresent) | Where-Object { $_ }
+if ($modeCount.Count -eq 0) { $Poll = $true }
+elseif ($modeCount.Count -gt 1) { throw "Choose exactly one mode." }
+
+$mutex = [Threading.Mutex]::new($false, "Local\KaggricultureEvidenceLoop")
+try { $held = $mutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $held = $true }
+if (-not $held) { exit 0 }
+try {
+    Recover-InterruptedEvaluation
+    Recover-InterruptedPlanning
+    if ($Poll) { Invoke-Poll }
+    elseif ($ArmPlan) { Invoke-ArmPlan }
+    elseif ($ApprovePlan) { Invoke-Approve $ApprovePlan }
+    elseif ($RejectPlan) { Invoke-Reject $RejectPlan }
+    elseif ($SubmitCandidate) { Invoke-Submit $SubmitCandidate }
+    elseif ($InstallTask) { Invoke-InstallTask }
+} catch {
+    $failedStatus = Read-Json $statusPath ([pscustomobject]@{})
+    if ($failedStatus.state -eq "PLAN_RUNNING") {
+        Publish-Status "CAP_REACHED" "Planning failed before producing a valid plan; code was untouched." | Out-Null
+    }
+    Write-Log "ERROR: $($_.Exception.Message)"
+    Send-Notification "Kaggriculture loop error" $_.Exception.Message
+    throw
+} finally {
     $mutex.ReleaseMutex()
     $mutex.Dispose()
 }
-

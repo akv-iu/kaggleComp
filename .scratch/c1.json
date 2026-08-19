@@ -1,0 +1,6 @@
+[
+ {"label":"base-12","lo":0,"hi":12,"interval":12},
+ {"label":"seedres-12","path":"D:/Projects/kaggleComp/.scratch/cand_seed.py","lo":0,"hi":12,"interval":12},
+ {"label":"base-24","lo":0,"hi":12,"interval":24},
+ {"label":"seedres-24","path":"D:/Projects/kaggleComp/.scratch/cand_seed.py","lo":0,"hi":12,"interval":24}
+]

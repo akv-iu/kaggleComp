@@ -1,0 +1,5 @@
+[
+ {"label":"lead0-24","over":{"FERTILIZE_LEAD":0},"lo":0,"hi":6,"interval":24},
+ {"label":"lead1-24","over":{"FERTILIZE_LEAD":1},"lo":0,"hi":6,"interval":24},
+ {"label":"lead1-12","over":{"FERTILIZE_LEAD":1},"lo":0,"hi":6,"interval":12}
+]

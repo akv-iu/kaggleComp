@@ -1,0 +1,6 @@
+[
+ {"label":"fetchslack8-24","path":"D:/Projects/kaggleComp/.scratch/cand_fetch.py","lo":0,"hi":12,"interval":24},
+ {"label":"holders-24","path":"D:/Projects/kaggleComp/.scratch/cand_hold.py","lo":0,"hi":12,"interval":24},
+ {"label":"fetchslack8-12","path":"D:/Projects/kaggleComp/.scratch/cand_fetch.py","lo":0,"hi":12,"interval":12},
+ {"label":"holders-12","path":"D:/Projects/kaggleComp/.scratch/cand_hold.py","lo":0,"hi":12,"interval":12}
+]

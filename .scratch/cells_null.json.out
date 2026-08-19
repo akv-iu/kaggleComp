@@ -1,0 +1,28 @@
+[
+ {
+  "label": "off-24",
+  "interval": 24,
+  "seeds": [
+   0,
+   2
+  ],
+  "mean": 93080.8,
+  "per_seed": [
+   95968,
+   90194
+  ]
+ },
+ {
+  "label": "basefile-24",
+  "interval": 24,
+  "seeds": [
+   0,
+   2
+  ],
+  "mean": 93080.8,
+  "per_seed": [
+   95968,
+   90194
+  ]
+ }
+]

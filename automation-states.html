@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Automation state machine</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:   #f5f5f5;
+      --color-ink:     #2d3142;
+      --color-muted:   #4f5d75;
+      --color-accent:  #eb6c36;
+      --font-sans:     'Geist', system-ui, sans-serif;
+      --font-serif:    'Instrument Serif', serif;
+      --font-mono:     'Geist Mono', ui-monospace, monospace;
+    }
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+    .frame { max-width: 1200px; width: 100%; }
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      color: var(--color-ink);
+      margin-bottom: 1.5rem;
+    }
+    svg { width: 100%; min-width: 900px; display: block; }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">State machine &#183; Diagram Design</p>
+    <h1>Automation state machine</h1>
+
+    <svg viewBox="0 0 1280 768" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="automation-states-title automation-states-desc">
+      <title id="automation-states-title">Automation state machine</title>
+      <desc id="automation-states-desc">State machine for the evidence-first optimization loop: an automatic four-hour poll can only move the system from IDLE to EVIDENCE_READY, and every step after that (arming a planning run, approving a patch for evaluation, and submitting a passing candidate) requires a separate human command, while any active state can be rejected back to a restored baseline.</desc>
+      <defs>
+        <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
+        <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#eb6c36"/></marker>
+        <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/></marker>
+      </defs>
+
+      <rect width="100%" height="100%" fill="#f5f5f5"/>
+
+      <!-- ============ TRANSITIONS (drawn before nodes) ============ -->
+
+      <!-- A1  start -> IDLE -->
+      <line x1="54" y1="144" x2="74" y2="144" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+
+      <!-- A2  IDLE -> EVIDENCE_READY -->
+      <line x1="220" y1="144" x2="356" y2="144" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <rect x="248" y="122" width="80" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="288" y="131" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">NEW EVIDENCE</text>
+
+      <!-- A3  EVIDENCE_READY -> PLAN_RUNNING  (human) -->
+      <line x1="560" y1="144" x2="696" y2="144" stroke="#2e5aa8" stroke-width="1" marker-end="url(#arrow-link)"/>
+      <rect x="596" y="122" width="68" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="630" y="131" fill="#2e5aa8" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">MANUAL ARM</text>
+
+      <!-- A4  PLAN_RUNNING -> AWAITING_REVIEW -->
+      <line x1="880" y1="144" x2="1016" y2="144" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <rect x="916" y="122" width="64" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="948" y="131" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">ONE PATCH</text>
+
+      <!-- A5  PLAN_RUNNING -> CAP_REACHED -->
+      <line x1="790" y1="176" x2="790" y2="244" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <rect x="800" y="198" width="52" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="804" y="207" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">CAPPED</text>
+
+      <!-- A6  AWAITING_REVIEW -> EVALUATING  (human) -->
+      <line x1="1120" y1="176" x2="1120" y2="372" stroke="#2e5aa8" stroke-width="1" marker-end="url(#arrow-link)"/>
+      <rect x="1128" y="262" width="84" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="1132" y="271" fill="#2e5aa8" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">MANUAL APPROVE</text>
+
+      <!-- A7  EVALUATING -> READY_TO_SUBMIT -->
+      <line x1="1020" y1="408" x2="884" y2="408" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <rect x="928" y="386" width="44" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="950" y="395" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">PASS</text>
+
+      <!-- A8  READY_TO_SUBMIT -> SUBMITTED  (human) -->
+      <line x1="680" y1="408" x2="544" y2="408" stroke="#2e5aa8" stroke-width="1" marker-end="url(#arrow-link)"/>
+      <rect x="572" y="386" width="76" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="610" y="395" fill="#2e5aa8" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">MANUAL SUBMIT</text>
+
+      <!-- A9  READY_TO_SUBMIT -> SUBMIT_FAILED -->
+      <line x1="744" y1="440" x2="744" y2="516" stroke="#4f5d75" stroke-width="1" marker-end="url(#arrow)"/>
+      <rect x="666" y="464" width="68" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="730" y="473" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="end" letter-spacing="0.06em">UPLOAD FAIL</text>
+
+      <!-- A10 SUBMIT_FAILED -> READY_TO_SUBMIT  (human, separate approval) -->
+      <line x1="816" y1="520" x2="816" y2="444" stroke="#2e5aa8" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#arrow-link)"/>
+      <rect x="826" y="464" width="68" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="830" y="473" fill="#2e5aa8" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">RE-APPROVE</text>
+
+      <!-- A11 ANY ACTIVE STATE -> REJECTED  (focal) -->
+      <line x1="210" y1="480" x2="210" y2="516" stroke="#eb6c36" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+      <rect x="220" y="494" width="76" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="224" y="503" fill="#eb6c36" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">MANUAL REJECT</text>
+
+      <!-- ============ NOTATION ============ -->
+
+      <!-- start pseudostate -->
+      <circle cx="48" cy="144" r="6" fill="#2d3142"/>
+
+      <!-- catch-all origin (notation, not a state) -->
+      <rect x="144" y="456" width="132" height="24" rx="4" fill="#f5f5f5"/>
+      <rect x="144" y="456" width="132" height="24" rx="4" fill="none" stroke="rgba(45,49,66,0.30)" stroke-width="0.8" stroke-dasharray="4,3"/>
+      <text x="210" y="471" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">ANY ACTIVE STATE</text>
+
+      <!-- ============ STATES ============ -->
+
+      <!-- IDLE -->
+      <rect x="80" y="112" width="140" height="64" rx="8" fill="#f5f5f5"/>
+      <rect x="80" y="112" width="140" height="64" rx="8" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+      <text x="150" y="148" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">IDLE</text>
+
+      <!-- EVIDENCE_READY -->
+      <rect x="360" y="112" width="200" height="64" rx="8" fill="#f5f5f5"/>
+      <rect x="360" y="112" width="200" height="64" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="460" y="140" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">EVIDENCE_READY</text>
+      <text x="460" y="158" fill="#7a8399" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">80 KB packet cap</text>
+
+      <!-- PLAN_RUNNING -->
+      <rect x="700" y="112" width="180" height="64" rx="8" fill="#f5f5f5"/>
+      <rect x="700" y="112" width="180" height="64" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="790" y="140" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">PLAN_RUNNING</text>
+      <text x="790" y="158" fill="#7a8399" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">6 turns &#183; read-only</text>
+
+      <!-- AWAITING_REVIEW -->
+      <rect x="1020" y="112" width="200" height="64" rx="8" fill="#f5f5f5"/>
+      <rect x="1020" y="112" width="200" height="64" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="1120" y="148" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">AWAITING_REVIEW</text>
+
+      <!-- CAP_REACHED (terminal) -->
+      <rect x="700" y="248" width="180" height="64" rx="8" fill="#f5f5f5"/>
+      <rect x="700" y="248" width="180" height="64" rx="8" fill="rgba(45,49,66,0.03)" stroke="rgba(45,49,66,0.30)" stroke-width="1"/>
+      <rect x="704" y="252" width="172" height="56" rx="4" fill="none" stroke="rgba(45,49,66,0.20)" stroke-width="0.8"/>
+      <text x="790" y="284" fill="#4f5d75" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">CAP_REACHED</text>
+
+      <!-- EVALUATING -->
+      <rect x="1020" y="376" width="200" height="64" rx="8" fill="#f5f5f5"/>
+      <rect x="1020" y="376" width="200" height="64" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="1120" y="404" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">EVALUATING</text>
+      <text x="1120" y="422" fill="#7a8399" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">12 seeds &#183; both seats</text>
+
+      <!-- READY_TO_SUBMIT -->
+      <rect x="680" y="376" width="200" height="64" rx="8" fill="#f5f5f5"/>
+      <rect x="680" y="376" width="200" height="64" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="780" y="404" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">READY_TO_SUBMIT</text>
+      <text x="780" y="422" fill="#7a8399" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">four gates passed</text>
+
+      <!-- SUBMITTED (focal, terminal) -->
+      <rect x="360" y="376" width="180" height="64" rx="8" fill="#f5f5f5"/>
+      <rect x="360" y="376" width="180" height="64" rx="8" fill="rgba(235,108,54,0.08)" stroke="#eb6c36" stroke-width="1"/>
+      <rect x="364" y="380" width="172" height="56" rx="4" fill="none" stroke="rgba(235,108,54,0.45)" stroke-width="0.8"/>
+      <text x="450" y="412" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">SUBMITTED</text>
+
+      <!-- SUBMIT_FAILED -->
+      <rect x="680" y="520" width="200" height="64" rx="8" fill="#f5f5f5"/>
+      <rect x="680" y="520" width="200" height="64" rx="8" fill="rgba(45,49,66,0.03)" stroke="rgba(45,49,66,0.30)" stroke-width="1" stroke-dasharray="4,3"/>
+      <text x="780" y="556" fill="#4f5d75" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">SUBMIT_FAILED</text>
+
+      <!-- REJECTED (terminal) -->
+      <rect x="120" y="520" width="180" height="64" rx="8" fill="#f5f5f5"/>
+      <rect x="120" y="520" width="180" height="64" rx="8" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+      <rect x="124" y="524" width="172" height="56" rx="4" fill="none" stroke="rgba(79,93,117,0.40)" stroke-width="0.8"/>
+      <text x="210" y="556" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">REJECTED</text>
+
+      <!-- ============ EDITORIAL CALLOUT ============ -->
+      <circle cx="140" cy="588" r="2" fill="#2d3142"/>
+      <path d="M 140 606 L 140 592" fill="none" stroke="rgba(45,49,66,0.40)" stroke-width="1" stroke-dasharray="4,3"/>
+      <text x="120" y="624" fill="#2d3142" font-size="14" font-style="italic" font-family="'Instrument Serif', serif">Every exit restores the exact baseline &#8212; a rejected</text>
+      <text x="120" y="644" fill="#2d3142" font-size="14" font-style="italic" font-family="'Instrument Serif', serif">or failed patch never survives in main.py.</text>
+
+      <!-- ============ LEGEND ============ -->
+      <line x1="40" y1="692" x2="1240" y2="692" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <text x="40" y="708" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+
+      <line x1="112" y1="705" x2="128" y2="705" stroke="#2e5aa8" stroke-width="1"/>
+      <text x="136" y="708" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">REQUIRES A HUMAN COMMAND</text>
+
+      <line x1="400" y1="705" x2="416" y2="705" stroke="#4f5d75" stroke-width="1"/>
+      <text x="424" y="708" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">AUTOMATIC TRANSITION</text>
+
+      <line x1="660" y1="705" x2="676" y2="705" stroke="#eb6c36" stroke-width="1.2"/>
+      <text x="684" y="708" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">REJECT PATH &#183; FROM ANY ACTIVE STATE</text>
+
+      <rect x="1000" y="698" width="16" height="12" rx="2" fill="none" stroke="#4f5d75" stroke-width="0.8"/>
+      <rect x="1003" y="701" width="10" height="6" rx="1" fill="none" stroke="rgba(79,93,117,0.40)" stroke-width="0.8"/>
+      <text x="1024" y="708" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">TERMINAL STATE</text>
+    </svg>
+  </div>
+</body>
+</html>

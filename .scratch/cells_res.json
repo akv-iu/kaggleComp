@@ -1,0 +1,7 @@
+[
+ {"label":"res0-24","over":{"SHED_TILE_RESERVE":0},"lo":0,"hi":6,"interval":24},
+ {"label":"res6-24","over":{"SHED_TILE_RESERVE":6},"lo":0,"hi":6,"interval":24},
+ {"label":"res12-24","over":{"SHED_TILE_RESERVE":12},"lo":0,"hi":6,"interval":24},
+ {"label":"res6-12","over":{"SHED_TILE_RESERVE":6},"lo":0,"hi":6,"interval":12},
+ {"label":"res12-12","over":{"SHED_TILE_RESERVE":12},"lo":0,"hi":6,"interval":12}
+]

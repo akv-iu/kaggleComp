@@ -1,0 +1,6 @@
+[
+ {"label":"base-24","over":{"DUSK_REACH":99},"lo":0,"hi":6,"interval":24},
+ {"label":"dusk23-24","over":{"DUSK_REACH":23},"lo":0,"hi":6,"interval":24},
+ {"label":"base-12","over":{"DUSK_REACH":99},"lo":0,"hi":6,"interval":12},
+ {"label":"dusk23-12","over":{"DUSK_REACH":23},"lo":0,"hi":6,"interval":12}
+]

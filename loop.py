@@ -1,51 +1,34 @@
-"""Loop maintenance: index replays, pick the informative ones, prune, list attempts.
+"""Deterministic maintenance for the evidence-first Kaggriculture loop.
 
-The point of all four subcommands is to stop the improvement loop from reading
-everything. A season of replays is ~17MB each and the ledgers are append-only, so
-"analyse every replay and read both ledgers" gets more expensive every run while
-telling us less -- 20 wins mostly confirm what we already know.
-
-    python loop.py index      rebuild .automation/replay_index.json (fast, all replays)
-    python loop.py select     print the replay files worth reading this run
-    python loop.py prune      delete raw replays outside the keep set
-    python loop.py attempts   rebuild attempts.jsonl from decision.md
-
-`index` never parses a replay. `rewards` and `info` are serialised before `steps`,
-so the first 64KB of a 17MB file already carries the score line and the team names.
+Commands: index, evidence, select, prune, migrate-attempts, attempt-upsert.
+The scheduled poll calls these commands; none invokes a model or edits main.py.
 """
 
+from __future__ import annotations
+
+import collections
+import datetime as dt
 import glob
+import hashlib
 import json
 import os
 import re
 import sys
 
 ME = "akshay"
-# Version-controlled on purpose. Once a raw replay is pruned its scores exist
-# nowhere else, so this is the only artefact here that cannot be regenerated --
-# losing it costs a ~1.3GB re-download. `.automation/` is gitignored; this is not.
 INDEX = "replay_index.json"
 ATTEMPTS = "attempts.jsonl"
-
-# What each run actually reads. Losses carry the signal; the ceiling games say
-# what the score could be if we played a different game.
-N_WORST_LOSSES = 3
-N_TOP_OPPONENT = 2
-N_CLOSE_LOSSES = 2
-# What survives on disk, in priority order, under a hard budget. Everything else
-# is deleted as soon as it has been indexed -- a replay is ~17MB and its scores,
-# which are the durable part, are already in the index. Anything deleted is still
-# re-downloadable with `kaggle competitions replay <episode>`.
-KEEP_TOP = 6      # the ceiling: what the best farms in the field actually scored
-KEEP_LOSSES = 6   # where we lose, which is where the next hypothesis comes from
-KEEP_RECENT = 4   # fresh material for the next run
 MAX_RAW_MB = 250
-
 HEAD_BYTES = 65536
+EVIDENCE_MAX_BYTES = 20_000
+
+
+def _submission(path):
+    match = re.search(r"submission-(\d+)", path.replace("\\", "/"))
+    return match.group(1) if match else None
 
 
 def _head_fields(path):
-    """Scores, team names and the replay URL, without parsing the file."""
     with open(path, "rb") as fh:
         head = fh.read(HEAD_BYTES).decode("utf-8", "ignore")
     rewards = re.search(r'"rewards":\s*\[([^\]]*)\]', head)
@@ -58,119 +41,372 @@ def _head_fields(path):
         scores = [float(x) for x in rewards.group(1).split(",")]
     except ValueError:
         return None
-    teams = [t.strip().strip('"') for t in names.group(1).split(",")]
+    teams = [team.strip().strip('"') for team in names.group(1).split(",")]
     if len(scores) != 2 or len(teams) != 2:
         return None
     return scores, teams, (video.group(1) if video else None), (seed.group(1) if seed else None)
 
 
-def build_index():
-    """Merge what is on disk into the existing index; never shrink it.
+def _normalise_row(row):
+    row = dict(row)
+    row["submission"] = row.get("submission") or _submission(row.get("file", ""))
+    return row
 
-    The index outlives the raw replays on purpose -- it is the record of every
-    episode we have ever scored, and the wrapper's "already seen" test reads it
-    to decide what to download. Rebuilding it from the surviving files would
-    make every prune schedule its own re-download.
-    """
-    rows = {r["episode"]: r for r in load_index()} if os.path.exists(INDEX) else {}
+
+def load_index():
+    if not os.path.exists(INDEX):
+        return []
+    with open(INDEX, encoding="utf-8") as fh:
+        return [_normalise_row(row) for row in json.load(fh)]
+
+
+def build_index():
+    """Merge on-disk replay headers into the durable index; never shrink it."""
+    rows = {row["episode"]: row for row in load_index()}
     for path in sorted(glob.glob("replays/**/*-replay.json", recursive=True)):
         fields = _head_fields(path)
         if not fields:
             continue
         scores, teams, video, seed = fields
-        seat = next((i for i, t in enumerate(teams) if ME in t.lower()), None)
-        if seat is None:
+        seat = next((i for i, team in enumerate(teams) if ME in team.lower()), None)
+        if seat is None or ME in teams[1 - seat].lower():
             continue
-        other = 1 - seat
-        # Our own submissions get paired against each other in the public field.
-        # Those games say nothing about how the field plays, and averaging them in
-        # is how "20-20 overall" hid that the top of the field scores twice us.
-        if ME in teams[other].lower():
-            continue
-        episode = re.search(r"episode-(\d+)-replay", path)
-        key = episode.group(1) if episode else os.path.basename(path)
-        rows[key] = {
-            "episode": key,
-            "file": path.replace("\\", "/"),
-            "seat": seat,
-            "me": scores[seat],
-            "them": scores[other],
-            "delta": scores[seat] - scores[other],
-            "opponent": teams[other],
-            "result": "WIN" if scores[seat] > scores[other] else "LOSS",
+        match = re.search(r"episode-(\d+)-replay", path)
+        episode = match.group(1) if match else os.path.basename(path)
+        path = path.replace("\\", "/")
+        rows[episode] = {
+            "episode": episode, "submission": _submission(path), "file": path,
+            "seat": seat, "me": scores[seat], "them": scores[1 - seat],
+            "delta": scores[seat] - scores[1 - seat], "opponent": teams[1 - seat],
+            "result": "WIN" if scores[seat] > scores[1 - seat] else "LOSS",
             "seed": seed,
-            # The replay viewer, for watching a loss rather than aggregating it.
-            "watch": video or ("https://www.kaggle.com/competitions/kaggriculture"
-                               "/leaderboard?dialog=episodes-episode-" + key),
+            "watch": video or ("https://www.kaggle.com/competitions/kaggriculture/"
+                               "leaderboard?dialog=episodes-episode-" + episode),
         }
-    out = sorted(rows.values(), key=lambda r: r["delta"])
+    output = sorted(rows.values(), key=lambda row: row["delta"])
     with open(INDEX, "w", encoding="utf-8") as fh:
-        json.dump(out, fh, indent=1)
-    return out
-
-
-def load_index():
-    if not os.path.exists(INDEX):
-        return build_index()
-    with open(INDEX, encoding="utf-8") as fh:
-        return json.load(fh)
+        json.dump(output, fh, indent=1, ensure_ascii=False)
+    return output
 
 
 def _existing(rows):
-    return [r for r in rows if os.path.exists(r["file"])]
+    return [row for row in rows if os.path.exists(row["file"])]
 
 
-def select(rows=None):
-    """Worst losses, the field's best games, and the near-misses. Deduplicated."""
-    rows = _existing(rows or load_index())
-    losses = [r for r in rows if r["result"] == "LOSS"]
+def select(rows=None, submission=None):
+    """At most three useful replays: worst, ceiling, and closest loss."""
+    rows = _existing(rows if rows is not None else load_index())
+    if submission:
+        rows = [row for row in rows if str(row.get("submission")) == str(submission)]
+    losses = [row for row in rows if row["result"] == "LOSS"]
+    candidates = []
+    if losses:
+        candidates.extend((min(losses, key=lambda row: row["delta"]),
+                           max(losses, key=lambda row: row["delta"])))
+    if rows:
+        candidates.append(max(rows, key=lambda row: row["them"]))
     picked, seen = [], set()
-    for r in (sorted(losses, key=lambda r: r["delta"])[:N_WORST_LOSSES]
-              + sorted(rows, key=lambda r: -r["them"])[:N_TOP_OPPONENT]
-              + sorted(losses, key=lambda r: -r["delta"])[:N_CLOSE_LOSSES]):
-        if r["file"] not in seen:
-            seen.add(r["file"])
-            picked.append(r)
-    return picked
+    for row in candidates:
+        if row["episode"] not in seen:
+            picked.append(row)
+            seen.add(row["episode"])
+    return picked[:3]
 
 
-def keep_priority(rows):
-    """Most worth keeping first. `prune` trims from the tail until it fits."""
-    rows = _existing(rows)
-    losses = sorted((r for r in rows if r["result"] == "LOSS"), key=lambda r: r["delta"])
-    top = sorted(rows, key=lambda r: -r["them"])
-    newest = sorted(rows, key=lambda r: -int(r["episode"]) if r["episode"].isdigit() else 0)
-    ordered, seen = [], set()
-    # Whatever this run was told to analyse comes first: it must outlive this
-    # run's own prune. Then the ceiling, then the losses, then fresh material.
-    for r in (select(rows) + top[:KEEP_TOP] + losses[:KEEP_LOSSES]
-              + newest[:KEEP_RECENT]):
-        if r["file"] not in seen:
-            seen.add(r["file"])
-            ordered.append(r)
-    return ordered
+def _tile_counts(farm):
+    counts = collections.Counter()
+    for row in farm.get("tiles", []):
+        for tile in row:
+            if tile is None:
+                counts["EMPTY"] += 1
+            elif tile == "LOCKED":
+                counts["LOCKED"] += 1
+            elif isinstance(tile, dict):
+                if tile.get("kind") == "PLANT":
+                    counts[tile.get("crop", "PLANT")] += 1
+                elif tile.get("animal"):
+                    counts[tile["animal"]] += 1
+                else:
+                    counts[tile.get("kind", "OTHER")] += 1
+    return dict(sorted(counts.items()))
+
+
+def _player_summary(data, seat):
+    action_counts = collections.Counter()
+    market_counts = collections.Counter()
+    market_units = collections.Counter()
+    milestones, seen_days, last_obs = [], set(), None
+    for step in data["steps"]:
+        agent = step[seat]
+        action = agent.get("action") or {}
+        for item in [action.get("farmer")] + list(action.get("hands") or []):
+            if item:
+                action_counts[item[0]] += 1
+        for order in action.get("market") or []:
+            if not order:
+                continue
+            key = order[0] + (":" + str(order[1]) if len(order) > 1 else "")
+            market_counts[key] += 1
+            if len(order) > 2 and isinstance(order[2], (int, float)):
+                market_units[key] += order[2]
+        obs = agent.get("observation") or {}
+        if not obs:
+            continue
+        last_obs = obs
+        day = obs.get("day")
+        if day in {0, 5, 10, 15, 20, 25, 29} and day not in seen_days:
+            farm, private = obs["farms"][seat], obs.get("private") or {}
+            milestones.append({
+                "day": day, "money": farm.get("money"),
+                "hands": len(farm.get("hands") or []),
+                "land": len(farm.get("unlocked_quadrants") or []),
+                "tiles": _tile_counts(farm),
+                "shed": dict(sorted((private.get("shed") or {}).items())),
+            })
+            seen_days.add(day)
+    final = data["steps"][-1][seat]
+    names = data.get("info", {}).get("TeamNames", [str(seat), str(1 - seat)])
+    return {
+        "team": names[seat], "reward": final.get("reward"), "status": final.get("status"),
+        "actions": dict(action_counts.most_common()),
+        "marketOrders": dict(market_counts.most_common()),
+        "marketUnits": dict(market_units.most_common()), "milestones": milestones,
+        "finalPrices": dict(sorted(((last_obs or {}).get("market", {}).get("prices") or {}).items())),
+    }
+
+
+def summarize_replay(row):
+    with open(row["file"], encoding="utf-8") as fh:
+        data = json.load(fh)
+    final_obs = data["steps"][-1][0].get("observation") or {}
+    return {
+        "episode": row["episode"], "result": row["result"], "delta": row["delta"],
+        "opponent": row["opponent"], "watch": row["watch"],
+        "configuration": {key: data.get("configuration", {}).get(key) for key in
+                          ("townCenterSellInterval", "townShopSellInterval",
+                           "townShopUnlockInterval", "turnsPerDay")},
+        "players": [_player_summary(data, 0), _player_summary(data, 1)],
+        "shops": final_obs.get("town", {}).get("unlocked_shops", []),
+    }
+
+
+def load_attempts():
+    if not os.path.exists(ATTEMPTS):
+        return []
+    with open(ATTEMPTS, encoding="utf-8") as fh:
+        return [json.loads(line) for line in fh if line.strip()]
+
+
+def _compact_attempt(row):
+    return {
+        "id": row.get("id"),
+        "hypothesis": str(row.get("hypothesis") or row.get("title", ""))[:220],
+        "verdict": row.get("verdict"),
+        "metrics": row.get("metrics") or {"wins": row.get("wins"), "mean": row.get("mean")},
+        "retryCondition": str(row.get("retryCondition") or "")[:240],
+    }
+
+
+def _relevant_attempts(rows):
+    """Prefer attempts that bear on the three deliberately queued hypotheses."""
+    groups = (("wheat",), ("shed", "carried", "inventory", "pressure"), ("melon",))
+    terms = tuple(term for group in groups for term in group)
+    scored = []
+    for position, row in enumerate(rows):
+        text = " ".join(str(row.get(key) or "") for key in
+                        ("hypothesis", "title", "retryCondition")).lower()
+        score = sum(term in text for term in terms)
+        if score:
+            scored.append((score, position, row))
+    chosen = []
+    for group in groups:
+        matches = [item for item in scored if any(term in " ".join(
+            str(item[2].get(key) or "") for key in ("hypothesis", "title", "retryCondition")
+        ).lower() for term in group)]
+        added = 0
+        for _, _, row in sorted(matches, reverse=True):
+            if row not in chosen:
+                chosen.append(row)
+                added += 1
+            if added == 2:
+                break
+    for _, _, row in sorted(scored, reverse=True):
+        if row not in chosen and len(chosen) < 8:
+            chosen.append(row)
+    for row in rows[-4:]:
+        if row not in chosen:
+            chosen.append(row)
+    return [_compact_attempt(row) for row in chosen[:12]]
+
+
+def _record(rows):
+    if not rows:
+        return {"games": 0, "wins": 0, "losses": 0, "ourMean": None,
+                "fieldMean": None, "ourBest": None, "fieldBest": None}
+    return {
+        "games": len(rows), "wins": sum(row["result"] == "WIN" for row in rows),
+        "losses": sum(row["result"] == "LOSS" for row in rows),
+        "ourMean": round(sum(row["me"] for row in rows) / len(rows), 1),
+        "fieldMean": round(sum(row["them"] for row in rows) / len(rows), 1),
+        "ourBest": max(row["me"] for row in rows), "fieldBest": max(row["them"] for row in rows),
+    }
+
+
+def build_evidence(submission, output, new_episode_ids=()):
+    rows = load_index()
+    current = [row for row in rows if str(row.get("submission")) == str(submission)]
+    chosen = select(rows, submission)
+    ceiling = max(rows, key=lambda row: row["them"]) if rows else None
+    stable = {
+        "submissionId": str(submission), "newEpisodeIds": list(new_episode_ids),
+        "selectedEpisodeIds": [row["episode"] for row in chosen],
+        "currentRecord": _record(current), "fieldRecord": _record(rows),
+        "fieldCeiling": ({key: ceiling.get(key) for key in
+                           ("episode", "them", "me", "opponent", "watch")} if ceiling else None),
+        "configurationFacts": {
+            "competitionTownCenterSellInterval": 24,
+            "installedDefaultTownCenterSellInterval": 12,
+            "competitionShopSampling": "with replacement",
+            "installedShopSampling": "without replacement",
+        },
+        "candidateBacklog": [
+            "WHEAT_PER_ANIMAL 0.75->0.5 with ENDGAME_WHEAT_TILES 10->0",
+            "shed pressure based on shed plus carried inventory",
+            "MELON_TILES 8->12 without changing purchase priority",
+        ],
+        "relevantAttempts": _relevant_attempts(load_attempts()),
+        "replays": [summarize_replay(row) for row in chosen],
+    }
+    fingerprint = hashlib.sha256(json.dumps(
+        stable, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    packet = dict(stable, evidenceFingerprint=fingerprint,
+                  createdAt=dt.datetime.now(dt.timezone.utc).isoformat())
+
+    def encoded():
+        return json.dumps(packet, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+
+    if len(encoded()) > EVIDENCE_MAX_BYTES:
+        for replay in packet["replays"]:
+            for player in replay["players"]:
+                player["milestones"] = [m for m in player["milestones"] if m["day"] in (0, 10, 20, 29)]
+        packet["relevantAttempts"] = packet["relevantAttempts"][-6:]
+    if len(encoded()) > EVIDENCE_MAX_BYTES:
+        for replay in packet["replays"]:
+            for player in replay["players"]:
+                player.pop("marketOrders", None)
+    raw = encoded()
+    if len(raw) > EVIDENCE_MAX_BYTES:
+        raise ValueError(f"evidence packet is {len(raw)} bytes; limit is {EVIDENCE_MAX_BYTES}")
+    with open(output, "wb") as fh:
+        fh.write(raw)
+    return packet
+
+
+def _verdict(title, block):
+    low = (title + "\n" + block).lower()
+    if any(term in low for term in ("verdict: rejected", "**verdict:** rejected",
+                                    "(rejected", "screened, pruned", "all rejected")):
+        return "rejected"
+    if "selected" in title.lower():
+        return "selected"
+    if any(term in low for term in ("process change", "analysis, no code", "evidence, no code")):
+        return "process"
+    return "unknown"
+
+
+def _legacy_record(parent, title, block):
+    date_match = re.search(r"\d{4}-\d{2}-\d{2}", parent + " " + title)
+    wins = re.search(r"(?:won|lost|gate:?|evidence[^\n]*?)\D(\d+)\s*/\s*(\d+)", block, re.I)
+    means = re.findall(r"[-+]?\$[\d,]+(?:\.\d+)?", block)
+    retry = re.search(r"(?:Test again only with|Condition to try again|Reconsider if):?\s*(.*)", block, re.I)
+    name = re.sub(r"^(?:Attempt|Experiment)\s*\d+[^-—]*[-—]\s*", "", title).strip()
+    stable = (parent + "\n" + title).encode("utf-8")
+    submission_match = re.search(r"submission\s+(\d+)", parent, re.I)
+    verdict = _verdict(title, block)
+    return {
+        "id": "legacy-" + hashlib.sha1(stable).hexdigest()[:12],
+        "createdAt": date_match.group(0) if date_match else None,
+        "hypothesis": name,
+        "changeFingerprint": hashlib.sha256(re.sub(r"\W+", " ", name.lower()).strip().encode()).hexdigest()[:16],
+        "baselineSubmission": submission_match.group(1) if submission_match else None,
+        "evaluatorVersion": "legacy", "evidenceIds": [],
+        "metrics": {"wins": f"{wins.group(1)}/{wins.group(2)}" if wins else None,
+                    "mean": means[-1] if means else None},
+        "verdict": verdict,
+        "retryCondition": retry.group(1).strip()[:500] if retry else None,
+        "history": [{"state": verdict, "at": date_match.group(0) if date_match else None,
+                     "detail": "Imported from frozen decision.md archive."}],
+    }
+
+
+def migrate_attempts():
+    """One-time import of both legacy ## entries and hidden ### attempts."""
+    with open("decision.md", encoding="utf-8") as fh:
+        text = fh.read()
+    headings = list(re.finditer(r"^(##|###)\s+(.+)$", text, re.M))
+    records, parent = [], ""
+    for index, match in enumerate(headings):
+        level, title = match.group(1), match.group(2).strip()
+        end = headings[index + 1].start() if index + 1 < len(headings) else len(text)
+        block = text[match.end():end]
+        if level == "##":
+            parent = title
+            records.append(_legacy_record(parent, title, block))
+        elif re.match(r"(?:Attempt|Experiment)\s*\d+", title, re.I):
+            records.append(_legacy_record(parent, title, block))
+    unique = {record["id"]: record for record in records}
+    with open(ATTEMPTS, "w", encoding="utf-8") as fh:
+        for record in unique.values():
+            fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+    return list(unique.values())
+
+
+def upsert_attempt(record_path):
+    with open(record_path, encoding="utf-8") as fh:
+        record = json.load(fh)
+    required = {"id", "hypothesis", "changeFingerprint", "evaluatorVersion",
+                "evidenceIds", "metrics", "verdict"}
+    missing = sorted(required - set(record))
+    if missing:
+        raise ValueError("attempt record missing: " + ", ".join(missing))
+    rows = load_attempts()
+    for index, row in enumerate(rows):
+        if row.get("id") == record["id"]:
+            rows[index] = record
+            break
+    else:
+        rows.append(record)
+    temporary = ATTEMPTS + ".tmp"
+    with open(temporary, "w", encoding="utf-8") as fh:
+        for row in rows:
+            fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+    os.replace(temporary, ATTEMPTS)
+    return record
 
 
 def keep_set(rows):
-    keep, used, budget = set(), 0, MAX_RAW_MB * 1_000_000
-    for r in keep_priority(rows):
-        size = os.path.getsize(r["file"])
+    existing = _existing(rows)
+    latest = max((int(row["submission"]) for row in existing if row.get("submission")), default=None)
+    losses = sorted((row for row in existing if row["result"] == "LOSS"), key=lambda row: row["delta"])
+    top = sorted(existing, key=lambda row: -row["them"])
+    newest = sorted(existing, key=lambda row: -int(row["episode"]) if row["episode"].isdigit() else 0)
+    ordered = select(existing, str(latest) if latest else None) + top[:6] + losses[:6] + newest[:4]
+    keep, seen, used, budget = set(), set(), 0, MAX_RAW_MB * 1_000_000
+    for row in ordered:
+        path = row["file"]
+        if path in seen:
+            continue
+        seen.add(path)
+        size = os.path.getsize(path)
         if keep and used + size > budget:
             break
-        keep.add(r["file"])
+        keep.add(path)
         used += size
     return keep
 
 
 def prune(dry_run=False):
-    """Delete every raw replay outside the keep set.
-
-    Walks the disk rather than the index on purpose. Games against our own
-    submissions are deliberately absent from the index, so an index-driven sweep
-    would never delete them and they would pile up forever.
-    """
-    keep = keep_set(load_index())
-    freed = 0
+    keep, freed = keep_set(load_index()), 0
     for path in glob.glob("replays/**/*-replay.json", recursive=True):
         if path.replace("\\", "/") in keep:
             continue
@@ -181,61 +417,41 @@ def prune(dry_run=False):
         for stale in glob.glob("replays/*"):
             if os.path.isdir(stale) and not os.listdir(stale):
                 os.rmdir(stale)
-    held = sum(os.path.getsize(f) for f in keep if os.path.exists(f))
+    held = sum(os.path.getsize(path) for path in keep if os.path.exists(path))
     return freed, len(keep), held
 
 
-def attempts():
-    """One line per recorded experiment, so 'has this been tried?' costs no prose."""
-    if not os.path.exists("decision.md"):
-        return []
-    text = open("decision.md", encoding="utf-8").read()
-    out = []
-    blocks = re.split(r"^## ", text, flags=re.M)[1:]
-    for block in blocks:
-        title = block.splitlines()[0].strip()
-        verdict = "unknown"
-        low = block.lower()
-        if "(rejected" in title.lower() or "**verdict:** rejected" in low:
-            verdict = "rejected"
-        elif "selected" in title.lower():
-            verdict = "selected"
-        elif "process change" in title.lower() or "analysis" in title.lower():
-            verdict = "process"
-        wins = re.search(r"(?:won|lost)\s+(\d+)/(\d+)", block)
-        mean = re.search(r"([-+]?\$[\d,]+(?:\.\d+)?)\)", block)
-        out.append({
-            "title": re.sub(r"^\d{4}-\d{2}-\d{2}\s*[-—]\s*", "", title),
-            "verdict": verdict,
-            "wins": f"{wins.group(1)}/{wins.group(2)}" if wins else None,
-            "mean": mean.group(1) if mean else None,
-        })
-    with open(ATTEMPTS, "w", encoding="utf-8") as fh:
-        for row in out:
-            fh.write(json.dumps(row) + "\n")
-    return out
-
-
 def _summary(rows):
-    mine = [r["me"] for r in rows]
-    wins = sum(1 for r in rows if r["result"] == "WIN")
-    best = max(rows, key=lambda r: r["them"])
-    return (f"{len(rows)} indexed, {wins}W-{len(rows) - wins}L, "
-            f"our best {max(mine):.0f}, field best {best['them']:.0f} ({best['opponent']})")
+    record = _record(rows)
+    if not rows:
+        return "0 indexed"
+    best = max(rows, key=lambda row: row["them"])
+    return (f"{record['games']} indexed, {record['wins']}W-{record['losses']}L, "
+            f"our best {record['ourBest']:.0f}, field best {best['them']:.0f} ({best['opponent']})")
 
 
 if __name__ == "__main__":
-    cmd = sys.argv[1] if len(sys.argv) > 1 else "index"
-    if cmd == "index":
+    command = sys.argv[1] if len(sys.argv) > 1 else "index"
+    if command == "index":
         print(_summary(build_index()))
-    elif cmd == "select":
-        print(json.dumps(select(), indent=1))
-    elif cmd == "prune":
+    elif command == "select":
+        print(json.dumps(select(submission=sys.argv[2] if len(sys.argv) > 2 else None),
+                         indent=1, ensure_ascii=False))
+    elif command == "evidence":
+        if len(sys.argv) < 4:
+            raise SystemExit("evidence requires SUBMISSION_ID OUTPUT [NEW_IDS]")
+        new_ids = tuple(filter(None, sys.argv[4].split(","))) if len(sys.argv) > 4 else ()
+        packet = build_evidence(sys.argv[2], sys.argv[3], new_ids)
+        print(f"{len(packet['replays'])} replay summaries -> {sys.argv[3]}")
+    elif command == "prune":
         freed, kept, held = prune("--dry-run" in sys.argv)
-        print(f"kept {kept} replays ({held / 1e6:.0f} of {MAX_RAW_MB} MB), "
-              f"freed {freed / 1e6:.0f} MB")
-    elif cmd == "attempts":
-        rows = attempts()
-        print(f"{len(rows)} attempts -> {ATTEMPTS}")
+        print(f"kept {kept} replays ({held / 1e6:.0f} of {MAX_RAW_MB} MB), freed {freed / 1e6:.0f} MB")
+    elif command == "migrate-attempts":
+        print(f"{len(migrate_attempts())} attempts -> {ATTEMPTS}")
+    elif command == "attempt-upsert":
+        upsert_attempt(sys.argv[2])
+        print(sys.argv[2])
+    elif command == "attempts":
+        print(f"{len(load_attempts())} authoritative attempts in {ATTEMPTS}")
     else:
-        sys.exit(__doc__)
+        raise SystemExit(__doc__)
