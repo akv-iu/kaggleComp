@@ -212,7 +212,7 @@ def _harvest_day(crop):
     return min(c["maxday"], window_start + c["max_yield"] - 2)
 
 
-def _next_animal(counts, day, structure=None, stock=None):
+def _next_animal(counts, day, structure=None, stock=None, prices=None):
     """Which animal the herd is most short of, among those still worth buying.
 
     An animal bought today must earn back its cost and its feed, hence the
@@ -243,6 +243,15 @@ def _next_animal(counts, day, structure=None, stock=None):
     if (day <= HERD_RUSH_DAY and counts.get("SHEEP", 0) < RUSH_SHEEP
             and structure in (None, "PASTURE")):
         return "SHEEP"
+    # Duplicate shop draws create extreme milk/wool markets. Preserve the proven
+    # opening, then let only a 2x live-price signal choose later pasture stock.
+    if prices and day > HERD_RUSH_DAY and structure in (None, "PASTURE"):
+        if (prices.get("WOOL", 0) >= 2 * prices.get("MILK", 0)
+                and day <= ANIMALS["SHEEP"]["last"]):
+            return "SHEEP"
+        if (prices.get("MILK", 0) >= 2 * prices.get("WOOL", 0)
+                and day <= ANIMALS["COW"]["last"]):
+            return "COW"
     best = best_score = None
     for name, a in ANIMALS.items():
         if structure is not None and a["structure"] != structure:
@@ -286,7 +295,7 @@ def _wheat_target(n_animals, day):
                ENDGAME_WHEAT_TILES if day >= 20 else 0)
 
 
-def _scan(tiles, day, hour, seeds, slots, money, stock):
+def _scan(tiles, day, hour, seeds, slots, money, stock, prices=None):
     """Return (jobs, want, grown).
 
     Jobs are (priority, x, y, op, needs_item); lower priority runs first.
@@ -380,7 +389,7 @@ def _scan(tiles, day, hour, seeds, slots, money, stock):
                     jobs.append((2 if t["animal"] != "GOOSE" else 3,
                                  x, y, ["CARE"], None))
             elif kind in ("COOP", "PASTURE"):
-                a = _next_animal(counts, day, kind, stock)
+                a = _next_animal(counts, day, kind, stock, prices)
                 if a:
                     counts[a] += 1
                     want[a] = want.get(a, 0) + 1
@@ -429,7 +438,7 @@ def _scan(tiles, day, hour, seeds, slots, money, stock):
             # and standing in the shed must never wait on the bank. Without this
             # the farm can deadlock outright -- six geese in the crate and a
             # budget too thin to authorise the $0 coop that would let them out.
-            a = _next_animal(counts, day, stock=stock)
+            a = _next_animal(counts, day, stock=stock, prices=prices)
             if a is not None and (stock.get(a, 0) > 0
                                   or budget >= ANIMALS[a]["cost"]):
                 if stock.get(a, 0) > 0:
@@ -574,6 +583,7 @@ def _market(me, priv, obs, load, n_animals, want, carried, grown):
     orders = []
     endgame = day >= LAST_DAY
     shed_used = sum(shed.values())
+    carried_total = sum(carried.values())
     # Every animal on the farm is a standing bill: miss two days of feed and the
     # bird walks off for good. Spending down to the last dollar on livestock and
     # then having nothing left to feed it is the one way to lose this game
@@ -604,7 +614,11 @@ def _market(me, priv, obs, load, n_animals, want, carried, grown):
     # 2. Sell. Drip the crash-prone goods, hold the feed wheat, dump on the last
     # day. A full shed discards its overflow at nightfall, so once it is nearly
     # full the floors stop being worth defending.
-    pressure = shed_used > SHED_PRESSURE
+    # Goods still on a unit's back are discarded at nightfall exactly like goods
+    # already in the shed, so the real ceiling is SHED_CAP against shed+carried,
+    # not SHED_PRESSURE against the shed alone -- measured +$1,759/+$1,126 mean
+    # (interval 24/12) over six seeds versus the shed-only trigger.
+    pressure = shed_used + carried_total > SHED_CAP
     for item, (cap, floor) in SELL_RULES.items():
         have = shed.get(item, 0)
         if have <= 0 or len(orders) >= 9:
@@ -741,7 +755,8 @@ def agent(obs):
     stock = {a: shed.get(a, 0) + carried.get(a, 0) for a in ANIMALS}
 
     jobs, want, grown = _scan(tiles, obs["day"], obs["hour"],
-                              priv.get("seeds", {}), slots, me["money"], stock)
+                              priv.get("seeds", {}), slots, me["money"], stock,
+                              obs["market"]["prices"])
     fetch = dict(want)
     fetch["WHEAT"] = n_animals
     jobs += _fetch_jobs(tiles, invs, shed, fetch)

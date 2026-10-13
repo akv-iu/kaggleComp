@@ -5,7 +5,8 @@ Run: .venv/Scripts/python.exe test_agent.py
 
 from kaggle_environments import make
 
-from main import (ANIMALS, HERD_RUSH_DAY, _assign, _harvest_day, _next_animal,
+from main import (ANIMALS, ENDGAME_WHEAT_TILES, HERD_RUSH_DAY,
+                  WHEAT_PER_ANIMAL, _assign, _harvest_day, _next_animal,
                   _scan, _wheat_target, agent)
 
 
@@ -14,8 +15,9 @@ def test_harvest_day():
     assert _harvest_day("WHEAT") == 4, _harvest_day("WHEAT")
     assert _harvest_day("CARROT") == 3, _harvest_day("CARROT")
     assert _harvest_day("MELON") == 10, _harvest_day("MELON")
-    assert _wheat_target(8, 0) == 6
-    assert _wheat_target(8, 20) == 10
+    # Checks the rounding/threshold formula, not one frozen tuning of the constants.
+    assert _wheat_target(8, 0) == round(8 * WHEAT_PER_ANIMAL)
+    assert _wheat_target(8, 20) == max(round(8 * WHEAT_PER_ANIMAL), ENDGAME_WHEAT_TILES)
 
 
 def test_next_animal():
@@ -35,6 +37,8 @@ def test_next_animal():
     assert _next_animal(dict(empty), 21, "COOP") is None
     # A pasture never gets a goose, whatever the herd is short of.
     assert _next_animal({"GOOSE": 0, "COW": 9, "SHEEP": 0}, 5, "PASTURE") == "SHEEP"
+    assert _next_animal(dict(empty), HERD_RUSH_DAY + 1, "PASTURE", prices={"MILK": 50, "WOOL": 240}) == "SHEEP"
+    assert _next_animal(dict(empty), HERD_RUSH_DAY + 1, "PASTURE", prices={"MILK": 240, "WOOL": 50}) == "COW"
     # A beast already bought outranks every rule above -- it earns nothing in the
     # shed, and "too late to buy one" is no reason to leave the one we own crated.
     assert _next_animal(dict(empty), 28, "PASTURE", {"COW": 1}) == "COW"

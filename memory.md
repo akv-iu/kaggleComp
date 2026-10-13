@@ -5,8 +5,9 @@ archive and `attempts.jsonl` is the authoritative experiment index.
 
 ## Current baseline
 
-- Production agent: v14, Kaggle submission `55507562`; last observed rating was
-  about 855 and its indexed best game is $138,163.
+- Production agent: v14 + shed/carried pressure + price-responsive late herd,
+  Kaggle submission `55660052`, scored 891.2 over 40 episodes; prior submission
+  `55633392` currently reads 861.6.
 - The durable progression was: synchronized livestock (v5), wheat economy (v6),
   wheat fertilization (v8), unblocked herd pipeline (v9), 40 berries (v10), opening
   herd rush (v11), closest-pair dispatch (v12), wage cap 89 (v13), then four early
@@ -69,17 +70,32 @@ archive and `attempts.jsonl` is the authoritative experiment index.
 
 ## Ordered candidate backlog
 
-Test one at a time and never combine them:
+Empty as of 2026-08-20. All three prior items are now closed:
 
-1. `WHEAT_PER_ANIMAL: 0.75 -> 0.5` with `ENDGAME_WHEAT_TILES: 10 -> 0`.
-   Across 18 seeds it was +$3,723 at interval 12 and +$4,557 at interval 24, but the
-   obsolete four-seed gate rejected it. It is the strongest unsubmitted candidate.
-2. Trigger shed pressure when `shed_used + sum(carried.values()) > SHED_CAP`.
-   It costs zero actions and measured +$1,759 at interval 24 and +$1,126 at 12 over
-   six seeds; the old gate used seeds where the overflow did not occur.
-3. `MELON_TILES: 8 -> 12` without moving seed purchases ahead of livestock.
-   Judge it by earlier herd/cash growth, not late melon revenue. A previous melon
-   failure changed purchase priority and therefore did not isolate tile count.
+1. `WHEAT_PER_ANIMAL: 0.75 -> 0.5` / `ENDGAME_WHEAT_TILES: 10 -> 0` -- retested
+   under the real 12-seed competition-v2 gate on 2026-08-19 (plan-20260819-171304):
+   mirrorDelta -$2,371, median -$2,518. Rejected.
+2. Shed pressure on `shed_used + carried_total > SHED_CAP` -- tested, passed,
+   submitted as `55633392` (plan-20260819-172153). Already live in `main.py`.
+3. `MELON_TILES: 8 -> 12` -- `main.py`'s own inline comment already records this
+   measured "a third worse" (see the `MELON_TILES` constant); not a fresh test.
+
+No new backlog item has cleared a screen since. 2026-08-20: raising the wheat
+surplus sell cap 12->24/turn (reasoned from replay 95015910's shed WHEAT piling to
+42 against an ~18 target) screened at -$219 median / +$235 mean over 16 fresh
+seeds -- below the gate, despite 27/32 head-to-head wins. See `attempts.jsonl`
+`manual-9377055b5416`. Two new losses (95015910 vs GG-bond, -$46,030; 94731597 vs
+WarRusher, -$579) both show the opponent as a net wheat *seller* while we are a
+net buyer, but this exact mechanism ("wheat as a late cash crop") is already
+closed below and the two replays disagree on how one-sided the effect is -- not
+enough to reopen it without evidence of idle crew capacity.
+
+2026-08-21: fresh submission `55660052` evidence confirmed the price-responsive
+herd improvement (891.2). Four follow-ups all failed the competition-v2 gate:
+forced opening sheep 4->2 and 4->3 lost $3,698/$2,241 mirror; conditional no-yarn
+wool liquidation was flat over 12 seeds (-$28, median $0); stopping wheat
+fertilization lost $3,867; and the berry feed-reserve exemption was a four-seed
+no-op. Keep the live code; do not spend a submission on these variants.
 
 ## Closed or conditional paths
 

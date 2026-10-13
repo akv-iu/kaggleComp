@@ -368,9 +368,10 @@ $(Get-Content -Raw -LiteralPath (Join-Path $workspace "main.py"))
 
     $schema = '{"type":"object","properties":{"status":{"type":"string","enum":["proposal","wait"]},"title":{"type":"string"},"hypothesis":{"type":"string"},"evidence":{"type":"array","items":{"type":"string"}},"patch":{"type":"string"},"message":{"type":"string"},"retryCondition":{"type":"string"}},"required":["status","title","hypothesis","evidence","patch","message","retryCondition"],"additionalProperties":false}'
     $reply = Native {
+        $schemaArg = $schema -replace '"', '\"'
         Get-Content -Raw -LiteralPath $inputPath | & claude -p --model sonnet --effort medium `
             --safe-mode --no-session-persistence --permission-mode plan --tools= `
-            --output-format json --json-schema $schema `
+            --output-format json --json-schema $schemaArg `
             2>&1 | Out-String
     }
     $exitCode = $LASTEXITCODE

@@ -1,0 +1,11 @@
+--- main.py	2026-08-19 17:22:10.867056500 -0600
++++ .scratch/cand_wheatsell.py	2026-08-20 19:50:07.371907300 -0600
+@@ -623,7 +623,7 @@
+     if not endgame and len(orders) < 9:
+         surplus = shed.get("WHEAT", 0) - n_animals - FEED_BUFFER
+         if surplus > 0 and prices.get("WHEAT", 0) >= 20:
+-            orders.append(["SELL", "WHEAT", min(surplus, 12)])
++            orders.append(["SELL", "WHEAT", min(surplus, 24)])
+     if endgame:
+         if shed.get("WHEAT", 0) > 0:
+             orders.append(["SELL", "WHEAT", shed["WHEAT"]])
