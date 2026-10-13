@@ -61,6 +61,7 @@ with it, are recorded in [`EVALUATOR_BACKTEST.md`](EVALUATOR_BACKTEST.md).
 | [`test_agent.py`](test_agent.py) | Runnable check: helpers plus one full episode |
 | [`loop.py`](loop.py) | Replay polling and evidence construction |
 | [`automation.ps1`](automation.ps1) | The manually-gated automation loop |
+| [`docs/architecture-journey.html`](docs/architecture-journey.html) | How the loop went from fully autonomous to watcher-plus-human-gates, and why |
 | [`attempts.jsonl`](attempts.jsonl) | Machine-readable index of every attempt and its outcome |
 | [`decision.md`](decision.md) | Frozen historical archive of strategy reasoning |
 | [`memory.md`](memory.md) | Working notes carried between planning runs |
